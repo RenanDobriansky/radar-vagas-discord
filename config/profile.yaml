@@ -1,0 +1,84 @@
+candidate:
+  name: "Renan Dobriansky da Silva"
+  city: "Curitiba"
+  state: "PR"
+  timezone: "America/Sao_Paulo"
+  linkedin_url: "https://www.linkedin.com/in/renandobriansky/"
+  github_url: "https://github.com/RenanDobriansky"
+  email_env: "CANDIDATE_EMAIL"
+  phone_env: "CANDIDATE_PHONE"
+
+resume:
+  enabled: true
+  output_directory: "output/resumes"
+  language: "pt-BR"
+  preferred_max_pages: 1
+  hard_max_pages: 2
+  maximum_projects: 3
+  maximum_skills: 12
+  attach_to_discord: true
+  keep_generated_files: false
+  file_name_pattern: "Curriculo_Renan_Dobriansky_{company}_{title}.docx"
+
+search:
+  minimum_score: 70
+  maximum_jobs_per_run: 10
+  maximum_age_days: 14
+  include_internships: false
+  terms:
+    - "Analista de Dados"
+    - "Analista de BI"
+    - "Business Intelligence"
+    - "Data Analyst"
+    - "BI Analyst"
+    - "Inteligencia Comercial"
+    - "Governanca de Dados"
+    - "Engenheiro de Dados Junior"
+  locations:
+    - "Curitiba"
+    - "Sao Jose dos Pinhais"
+    - "Pinhais"
+    - "Colombo"
+    - "Araucaria"
+    - "Campo Largo"
+    - "Fazenda Rio Grande"
+    - "Remoto Brasil"
+
+profile:
+  primary_skills:
+    - "Python"
+    - "pandas"
+    - "SQL"
+    - "PostgreSQL"
+    - "Firebird"
+    - "Power BI"
+    - "DAX"
+    - "Power Query"
+    - "M"
+    - "ETL"
+    - "modelagem de dados"
+    - "dashboards"
+    - "automacao"
+  secondary_skills:
+    - "Excel"
+    - "Git"
+    - "SQL Server"
+    - "Oracle"
+    - "MySQL"
+
+filters:
+  excluded_seniority:
+    - "senior"
+    - "especialista"
+    - "staff"
+    - "principal"
+    - "lead"
+    - "coordenador"
+    - "gerente"
+    - "diretor"
+    - "head"
+  excluded_terms:
+    - "cientista de dados senior"
+    - "engenheiro de software"
+    - "desenvolvedor full stack"
+

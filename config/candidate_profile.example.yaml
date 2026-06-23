@@ -1,0 +1,77 @@
+candidate:
+  name: "Rafael Exemplo da Silva"
+  city: "Curitiba"
+  state: "PR"
+  linkedin_url: "https://www.linkedin.com/in/rafael-exemplo/"
+  github_url: "https://github.com/rafael-exemplo"
+
+summary_blocks:
+  - id: "summary_data_bi"
+    text: "Analista de dados com experiencia em BI, SQL, automacao e construcao de indicadores."
+    tags: ["dados", "bi", "sql", "automacao"]
+  - id: "summary_finance"
+    text: "Atuacao em integracao de dados e analise de indicadores financeiros com foco em confiabilidade."
+    tags: ["financeiro", "etl", "python", "postgresql"]
+
+skills:
+  - id: "python"
+    label: "Python"
+    aliases: ["python", "pandas"]
+    tags: ["automacao", "etl", "analise"]
+  - id: "sql"
+    label: "SQL"
+    aliases: ["sql", "postgresql", "sql server"]
+    tags: ["banco-de-dados", "consultas"]
+  - id: "power_bi"
+    label: "Power BI"
+    aliases: ["power bi", "powerbi", "business intelligence"]
+    tags: ["bi", "dashboard", "indicadores"]
+
+experiences:
+  - id: "smart_data_bi"
+    company: "Smart Data BI"
+    role: "Analista de Dados"
+    start_date: "2024-01"
+    end_date: null
+    bullets:
+      - id: "smart_dashboard"
+        text: "Desenvolvimento de dashboards e indicadores para areas de negocio."
+        tags: ["power-bi", "dashboard", "indicadores"]
+      - id: "smart_sql"
+        text: "Criacao de consultas e integracoes com bancos relacionais."
+        tags: ["sql", "postgresql", "firebird", "sql-server"]
+      - id: "smart_automation"
+        text: "Automacao de rotinas de dados com Python para reduzir atividades manuais."
+        tags: ["python", "automacao", "etl"]
+
+projects:
+  - id: "cvm_pipeline"
+    title: "Pipeline Financeiro CVM"
+    bullets:
+      - "Pipeline em Python e PostgreSQL para consolidacao de indicadores financeiros."
+    tags: ["python", "postgresql", "financeiro", "etl"]
+  - id: "erp_bi"
+    title: "BI Integrado a ERP"
+    bullets:
+      - "Modelo analitico com consultas SQL e dashboards para acompanhamento operacional."
+    tags: ["power-bi", "sql", "erp", "dashboard"]
+
+education:
+  - id: "fae_data_science"
+    institution: "FAE Business School"
+    course: "Ciencia de Dados para Negocios"
+    status: "Em andamento"
+    expected_completion: "2027"
+  - id: "esic_business"
+    institution: "ESIC"
+    course: "Administracao"
+    status: "Curso interrompido"
+
+highlights:
+  - "1o lugar no Data Science Day 2024"
+  - "2o lugar em competicao de dashboards"
+
+forbidden_claims:
+  - "formado em Administracao"
+  - "experiencia internacional nao comprovada"
+

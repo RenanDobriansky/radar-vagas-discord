@@ -1,0 +1,27 @@
+# Virtual environment
+.venv/
+
+# Environment files
+.env
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Local candidate data
+config/candidate_profile.local.yaml
+
+# Generated outputs
+output/resumes/*
+!output/resumes/.gitkeep
+
+# IDE and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
