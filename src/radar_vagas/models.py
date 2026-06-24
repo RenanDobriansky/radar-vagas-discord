@@ -92,7 +92,7 @@ class JobPosting(BaseModel):
     location: str | None = None
     work_mode: WorkMode | None = None
     employment_type: str | None = None
-    description: NonEmptyStr
+    description: str = ""
     salary: str | None = None
     published_at: datetime | None = None
     updated_at: datetime | None = None
@@ -100,6 +100,13 @@ class JobPosting(BaseModel):
     source_name: NonEmptyStr
     search_term: str | None = None
     collected_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def normalize_description(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
 
     @field_validator("published_at", "updated_at", "collected_at", mode="before")
     @classmethod
@@ -120,6 +127,7 @@ class EvaluatedJob(BaseModel):
     rejection_reasons: list[str] = Field(default_factory=list)
     is_eligible: bool
     fingerprint: NonEmptyStr
+    score_explanation: NonEmptyStr
 
 
 class ResumeArtifact(BaseModel):

@@ -128,6 +128,72 @@ class FilterConfig(BaseModel):
     excluded_terms: list[str] = Field(default_factory=list)
 
 
+class ScoringWeightsConfig(BaseModel):
+    """Pesos maximos de cada grupo do score."""
+
+    title: int = Field(ge=0)
+    technical: int = Field(ge=0)
+    seniority: int = Field(ge=0)
+    location: int = Field(ge=0)
+    freshness: int = Field(ge=0)
+
+    @field_validator("freshness")
+    @classmethod
+    def validate_total_weight(cls, value: int, info: Any) -> int:
+        data = info.data
+        components = [
+            data.get("title", 0),
+            data.get("technical", 0),
+            data.get("seniority", 0),
+            data.get("location", 0),
+            value,
+        ]
+        if all(isinstance(component, int) for component in components) and sum(components) != 100:
+            raise ValueError("scoring weights must total 100")
+        return value
+
+
+class ScoringConfig(BaseModel):
+    """Configuracoes do algoritmo deterministico de scoring."""
+
+    weights: ScoringWeightsConfig
+    related_title_keywords: list[str] = Field(default_factory=list)
+    partial_title_keywords: list[str] = Field(default_factory=list)
+    skill_weights: dict[str, int] = Field(default_factory=dict)
+    skill_aliases: dict[str, list[str]] = Field(default_factory=dict)
+
+    @field_validator("related_title_keywords", "partial_title_keywords")
+    @classmethod
+    def clean_keyword_lists(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
+
+    @field_validator("skill_weights")
+    @classmethod
+    def validate_skill_weights(cls, value: dict[str, int]) -> dict[str, int]:
+        if not value:
+            raise ValueError("skill_weights must contain at least one skill")
+        cleaned = {key.strip(): weight for key, weight in value.items() if key.strip()}
+        if not cleaned:
+            raise ValueError("skill_weights must contain at least one non-empty key")
+        return cleaned
+
+    @field_validator("skill_aliases")
+    @classmethod
+    def validate_skill_aliases(cls, value: dict[str, list[str]], info: Any) -> dict[str, list[str]]:
+        weights = info.data.get("skill_weights", {})
+        aliases: dict[str, list[str]] = {}
+        for skill_name, skill_aliases in value.items():
+            normalized_key = skill_name.strip()
+            aliases[normalized_key] = [alias.strip() for alias in skill_aliases if alias.strip()]
+
+        missing_aliases = sorted(set(weights) - set(aliases))
+        if missing_aliases:
+            missing = ", ".join(missing_aliases)
+            raise ValueError(f"skill_aliases missing entries for: {missing}")
+
+        return aliases
+
+
 class ProfileConfig(BaseModel):
     """Representa o arquivo `config/profile.yaml`."""
 
@@ -136,6 +202,7 @@ class ProfileConfig(BaseModel):
     search: SearchConfig
     profile: SkillProfileConfig
     filters: FilterConfig
+    scoring: ScoringConfig
 
 
 class RuntimeSettings(BaseSettings):

@@ -82,3 +82,86 @@ filters:
     - "engenheiro de software"
     - "desenvolvedor full stack"
 
+scoring:
+  weights:
+    title: 25
+    technical: 35
+    seniority: 15
+    location: 15
+    freshness: 10
+  related_title_keywords:
+    - "dados"
+    - "data analyst"
+    - "bi"
+    - "business intelligence"
+    - "analytics"
+    - "inteligencia comercial"
+    - "inteligencia de mercado"
+    - "indicadores"
+    - "governanca de dados"
+    - "engenheiro de dados"
+    - "power bi"
+  partial_title_keywords:
+    - "analista"
+    - "reporting"
+    - "performance"
+    - "comercial"
+    - "mercado"
+  skill_weights:
+    SQL: 10
+    Power BI: 10
+    Python: 8
+    DAX: 6
+    Power Query: 6
+    ETL: 5
+    PostgreSQL: 4
+    Modelagem de Dados: 4
+    Dashboard: 4
+    Excel: 3
+    Git: 2
+    Cloud: 2
+    PySpark: 2
+  skill_aliases:
+    SQL:
+      - "sql"
+    Power BI:
+      - "power bi"
+      - "powerbi"
+      - "business intelligence"
+    Python:
+      - "python"
+      - "pandas"
+    DAX:
+      - "dax"
+    Power Query:
+      - "power query"
+      - "linguagem m"
+      - "power query / m"
+      - "m language"
+    ETL:
+      - "etl"
+      - "pipeline"
+      - "pipelines"
+    PostgreSQL:
+      - "postgresql"
+      - "postgres"
+    Modelagem de Dados:
+      - "modelagem de dados"
+      - "data modeling"
+      - "modelo de dados"
+    Dashboard:
+      - "dashboard"
+      - "dashboards"
+      - "indicadores"
+    Excel:
+      - "excel"
+    Git:
+      - "git"
+      - "github"
+    Cloud:
+      - "cloud"
+      - "aws"
+      - "azure"
+      - "gcp"
+    PySpark:
+      - "pyspark"

@@ -58,6 +58,7 @@ def test_evaluated_job_enforces_score_range() -> None:
             "rejection_reasons": [],
             "is_eligible": True,
             "fingerprint": "abc123",
+            "score_explanation": "cargo=25/25",
         }
     )
 
