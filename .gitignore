@@ -19,6 +19,8 @@ config/candidate_profile.local.yaml
 # Generated outputs
 output/resumes/*
 !output/resumes/.gitkeep
+data/*.bak
+data/*.tmp
 
 # IDE and OS
 .DS_Store
