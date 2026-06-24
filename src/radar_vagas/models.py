@@ -227,7 +227,18 @@ class CandidateEducation(BaseModel):
     institution: NonEmptyStr
     course: NonEmptyStr
     status: NonEmptyStr
+    start_date: str | None = None
+    end_date: str | None = None
     expected_completion: str | None = None
+
+
+class CandidateAdditionalExperience(BaseModel):
+    """Experiencia adicional aprovada para complementar curriculos."""
+
+    id: NonEmptyStr
+    headline: NonEmptyStr
+    details: NonEmptyStr
+    tags: list[NonEmptyStr] = Field(default_factory=list)
 
 
 class CandidateProfile(BaseModel):
@@ -239,6 +250,7 @@ class CandidateProfile(BaseModel):
     experiences: list[CandidateExperience] = Field(default_factory=list)
     projects: list[CandidateProject] = Field(default_factory=list)
     education: list[CandidateEducation] = Field(default_factory=list)
+    additional_experiences: list[CandidateAdditionalExperience] = Field(default_factory=list)
     highlights: list[NonEmptyStr] = Field(default_factory=list)
     forbidden_claims: list[NonEmptyStr] = Field(default_factory=list)
 
@@ -264,6 +276,8 @@ class CandidateProfile(BaseModel):
             collect(project.id)
         for education_item in self.education:
             collect(education_item.id)
+        for additional_experience in self.additional_experiences:
+            collect(additional_experience.id)
 
         if duplicate_ids:
             duplicates = ", ".join(sorted(duplicate_ids))

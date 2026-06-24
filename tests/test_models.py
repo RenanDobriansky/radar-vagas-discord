@@ -131,14 +131,24 @@ def test_candidate_profile_accepts_valid_structure() -> None:
                     "institution": "FAE Business School",
                     "course": "Ciencia de Dados para Negocios",
                     "status": "Em andamento",
-                    "expected_completion": "2027",
+                    "expected_completion": "jul/2027",
                 },
                 {
                     "id": "esic_business",
-                    "institution": "ESIC",
+                    "institution": "ESIC Business",
                     "course": "Administracao",
                     "status": "Curso interrompido",
+                    "start_date": "2020-07",
+                    "end_date": "2023-03",
                 },
+            ],
+            "additional_experiences": [
+                {
+                    "id": "negocio_1",
+                    "headline": "Distribuidora Exemplo - Socio-proprietario (2022-2025)",
+                    "details": "compras, estoque, vendas e gestao operacional.",
+                    "tags": ["negocio", "operacional"],
+                }
             ],
             "highlights": ["1o lugar no Data Science Day 2024"],
             "forbidden_claims": ["formado em Administracao"],
@@ -146,3 +156,4 @@ def test_candidate_profile_accepts_valid_structure() -> None:
     )
 
     assert profile.education[1].status == "Curso interrompido"
+    assert profile.additional_experiences[0].headline.startswith("Distribuidora Exemplo")

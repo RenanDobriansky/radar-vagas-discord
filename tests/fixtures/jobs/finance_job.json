@@ -1,0 +1,17 @@
+{
+  "provider": "fixture",
+  "provider_job_id": "fin-001",
+  "title": "Analista de Dados Financeiros",
+  "company": "Empresa Financeira",
+  "location": "Remoto Brasil",
+  "work_mode": "remoto",
+  "employment_type": "CLT",
+  "description": "Analisar indicadores financeiros, estruturar pipeline de dados, Python, PostgreSQL, SQL e dashboards para performance financeira.",
+  "salary": null,
+  "published_at": "2026-06-23T08:00:00Z",
+  "updated_at": "2026-06-23T10:00:00Z",
+  "url": "https://example.com/jobs/fin-001",
+  "source_name": "Fixture",
+  "search_term": "Analista Financeiro",
+  "collected_at": "2026-06-23T11:30:00Z"
+}

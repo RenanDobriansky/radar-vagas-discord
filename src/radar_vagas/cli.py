@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 from radar_vagas import __version__
-from radar_vagas.config import load_runtime_settings
+from radar_vagas.config import load_profile_config, load_runtime_settings
+from radar_vagas.models import JobPosting
 from radar_vagas.providers.base import ProviderError
 from radar_vagas.providers.jooble import JoobleProvider
 from radar_vagas.providers.remotive import RemotiveProvider
+from radar_vagas.resumes.generator import generate_resume_for_job
+from radar_vagas.resumes.profile import load_resume_profile
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,6 +59,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Categoria opcional suportada pelo provider quando aplicavel.",
     )
+    parser.add_argument(
+        "--generate-resume",
+        metavar="CAMINHO_JSON",
+        help="Gera um curriculo DOCX a partir de uma vaga normalizada em JSON.",
+    )
+    parser.add_argument(
+        "--save-resumes",
+        action="store_true",
+        help="No modo dry-run, gera curriculos de exemplo para inspecao.",
+    )
     return parser
 
 
@@ -62,6 +76,68 @@ def main(argv: list[str] | None = None) -> int:
     """Executa a CLI placeholder sem acionar integracoes reais."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.generate_resume:
+        settings = load_runtime_settings()
+        profile_config = load_profile_config()
+        resume_profile = load_resume_profile(settings)
+        job = _load_job_from_json(Path(args.generate_resume))
+        artifact = generate_resume_for_job(
+            job=job,
+            resume_profile=resume_profile,
+            config=profile_config,
+        )
+        print(
+            json.dumps(
+                {
+                    "file_path": str(artifact.file_path),
+                    "file_name": artifact.file_name,
+                    "is_valid": artifact.is_valid,
+                    "validation_errors": artifact.validation_errors,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0 if artifact.is_valid else 1
+
+    if args.dry_run and args.save_resumes and args.provider is None:
+        settings = load_runtime_settings()
+        profile_config = load_profile_config()
+        resume_profile = load_resume_profile(settings)
+        fixture_paths = [
+            Path("tests/fixtures/jobs/bi_job.json"),
+            Path("tests/fixtures/jobs/finance_job.json"),
+            Path("tests/fixtures/jobs/data_engineering_job.json"),
+        ]
+        artifacts = []
+        for fixture_path in fixture_paths:
+            job = _load_job_from_json(fixture_path)
+            artifacts.append(
+                generate_resume_for_job(
+                    job=job,
+                    resume_profile=resume_profile,
+                    config=profile_config,
+                )
+            )
+        print(
+            json.dumps(
+                {
+                    "generated": len(artifacts),
+                    "artifacts": [
+                        {
+                            "file_path": str(artifact.file_path),
+                            "file_name": artifact.file_name,
+                            "is_valid": artifact.is_valid,
+                        }
+                        for artifact in artifacts
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
 
     if args.provider == "jooble":
         if not args.dry_run:
@@ -142,3 +218,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print("Radar de Vagas inicializado. Integracoes reais ainda nao foram implementadas.")
     return 0
+
+
+def _load_job_from_json(path: Path) -> JobPosting:
+    return JobPosting.model_validate_json(path.read_text(encoding="utf-8"))

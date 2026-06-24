@@ -21,7 +21,7 @@ skills:
   - id: "sql"
     label: "SQL"
     aliases: ["sql", "postgresql", "sql server"]
-    tags: ["banco-de-dados", "consultas"]
+    tags: ["banco-de-dados", "consultas", "tratamento", "validacao", "qualidade de dados"]
   - id: "power_bi"
     label: "Power BI"
     aliases: ["power bi", "powerbi", "business intelligence"]
@@ -61,17 +61,28 @@ education:
     institution: "FAE Business School"
     course: "Ciencia de Dados para Negocios"
     status: "Em andamento"
-    expected_completion: "2027"
+    expected_completion: "jul/2027"
   - id: "esic_business"
-    institution: "ESIC"
+    institution: "ESIC Business"
     course: "Administracao"
     status: "Curso interrompido"
+    start_date: "2020-07"
+    end_date: "2023-03"
+
+additional_experiences:
+  - id: "negocio_distribuicao"
+    headline: "Distribuidora Exemplo Ltda - Socio-proprietario (2021-2024)"
+    details: "compras, estoque, vendas e gestao operacional."
+    tags: ["negocio", "operacional", "comercial", "gestao"]
+  - id: "operacao_papelaria"
+    headline: "Papelaria Exemplo - Gestao operacional (2018-2021)"
+    details: "prospeccao, vendas e suporte a processos internos."
+    tags: ["negocio", "comercial", "operacional"]
 
 highlights:
-  - "1o lugar no Data Science Day 2024"
-  - "2o lugar em competicao de dashboards"
+  - "1o lugar em desafio interno de dados e 2o lugar em competicao de dashboards."
+  - "Cursos de Power BI e Python - Academia Exemplo | Ingles intermediario."
 
 forbidden_claims:
   - "formado em Administracao"
   - "experiencia internacional nao comprovada"
-

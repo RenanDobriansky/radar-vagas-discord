@@ -1,0 +1,130 @@
+candidate:
+  name: "Renan Dobriansky da Silva"
+  city: "Curitiba"
+  state: "PR"
+  linkedin_url: "https://www.linkedin.com/in/renandobriansky/"
+  github_url: "https://github.com/RenanDobriansky"
+
+summary_blocks:
+  - id: "summary_bi_data"
+    text: "Analista de Dados com experiencia em BI, SQL, Power BI, automacao e construcao de indicadores para apoio a decisoes de negocio."
+    tags: ["dados", "bi", "sql", "power-bi", "indicadores", "automacao"]
+  - id: "summary_data_engineering"
+    text: "Atuacao em integracao de dados, ETL e automacoes em Python com foco em confiabilidade, produtividade e suporte a operacoes analiticas."
+    tags: ["etl", "python", "automacao", "integracao", "dados"]
+  - id: "summary_finance"
+    text: "Experiencia em pipelines e indicadores financeiros com Python, PostgreSQL e modelagem para analise de desempenho."
+    tags: ["financeiro", "python", "postgresql", "etl", "indicadores"]
+
+skills:
+  - id: "python"
+    label: "Python"
+    aliases: ["python", "pandas"]
+    tags: ["python", "etl", "automacao", "analise"]
+  - id: "sql"
+    label: "SQL"
+    aliases: ["sql", "postgresql", "firebird", "sql server"]
+    tags: ["sql", "consultas", "banco-de-dados", "tratamento", "validacao", "qualidade de dados"]
+  - id: "power_bi"
+    label: "Power BI"
+    aliases: ["power bi", "powerbi", "business intelligence"]
+    tags: ["power-bi", "dashboard", "bi", "indicadores"]
+  - id: "dax"
+    label: "DAX"
+    aliases: ["dax"]
+    tags: ["dax", "power-bi", "medidas"]
+  - id: "power_query"
+    label: "Power Query"
+    aliases: ["power query", "linguagem m", "m"]
+    tags: ["power-query", "m", "transformacao"]
+  - id: "etl"
+    label: "ETL e Pipelines"
+    aliases: ["etl", "pipeline", "pipelines"]
+    tags: ["etl", "pipeline", "integracao"]
+  - id: "modelagem_dados"
+    label: "Modelagem de Dados"
+    aliases: ["modelagem de dados", "modelo de dados"]
+    tags: ["modelagem", "dados"]
+  - id: "excel"
+    label: "Excel"
+    aliases: ["excel"]
+    tags: ["excel", "analise"]
+  - id: "git"
+    label: "Git e GitHub"
+    aliases: ["git", "github"]
+    tags: ["git", "versionamento"]
+
+experiences:
+  - id: "smart_data_bi"
+    company: "Smart Data BI"
+    role: "Analista de Dados"
+    start_date: "2025-04"
+    end_date: "2025-12"
+    bullets:
+      - id: "smart_dashboard_indicators"
+        text: "Criacao de dashboards e indicadores em Power BI para acompanhamento de operacoes e apoio a decisoes."
+        tags: ["power-bi", "dashboard", "indicadores", "bi"]
+      - id: "smart_dax_power_query"
+        text: "Desenvolvimento de medidas em DAX e transformacoes em Power Query para consolidacao e qualidade dos dados."
+        tags: ["dax", "power-query", "m", "transformacao"]
+      - id: "smart_sql_integration"
+        text: "Consultas e integracoes com bancos PostgreSQL, Firebird e SQL Server em rotinas analiticas."
+        tags: ["sql", "postgresql", "firebird", "sql-server", "integracao"]
+      - id: "smart_python_automation"
+        text: "Automacoes e rotinas em Python para reduzir tarefas manuais e acelerar processos de dados."
+        tags: ["python", "automacao", "etl"]
+      - id: "smart_firebird_bi"
+        text: "Projeto de BI integrado a ERP Firebird com foco em visibilidade operacional e padronizacao de informacoes."
+        tags: ["power-bi", "firebird", "erp", "bi"]
+
+projects:
+  - id: "cvm_finance_pipeline"
+    title: "Pipeline de Indicadores Financeiros com dados da CVM"
+    bullets:
+      - "Pipeline em Python e PostgreSQL para consolidacao e analise de indicadores financeiros."
+      - "Estruturacao de dados para consultas, acompanhamento de desempenho e apoio a analises."
+    tags: ["python", "postgresql", "financeiro", "etl", "indicadores"]
+  - id: "ordens_compra_pdf"
+    title: "Automacao de Ordens de Compra em PDF"
+    bullets:
+      - "Automacao de leitura e transformacao de ordens de compra em PDF para arquivos de importacao."
+      - "Reducao de etapas manuais com foco em produtividade e padronizacao."
+    tags: ["python", "automacao", "pdf", "processos"]
+  - id: "bi_erp_firebird"
+    title: "BI Integrado a ERP Firebird"
+    bullets:
+      - "Estruturacao de consultas e indicadores para acompanhamento operacional em ambiente ERP Firebird."
+      - "Construcao de dashboards e metricas para suporte a operacoes e gestao."
+    tags: ["power-bi", "firebird", "sql", "dashboard", "erp"]
+
+education:
+  - id: "fae_data_science"
+    institution: "FAE Business School"
+    course: "Ciencia de Dados para Negocios"
+    status: "Em andamento"
+    expected_completion: "jul/2027"
+  - id: "esic_business"
+    institution: "ESIC Business"
+    course: "Administracao"
+    status: "Curso interrompido"
+    start_date: "2020-07"
+    end_date: "2023-03"
+
+additional_experiences:
+  - id: "silo_miotto"
+    headline: "Silo Miotto Distribuidora Ltda - Socio-proprietario (2022-2025)"
+    details: "compras, estoque, vendas e gestao operacional."
+    tags: ["negocio", "operacional", "comercial", "gestao"]
+  - id: "wow_paper"
+    headline: "Wow Paper do Brasil - Socio-proprietario (2019-2022)"
+    details: "prospeccao, vendas e operacao. Experiencias que ampliaram a visao de negocio aplicada a analises de dados."
+    tags: ["negocio", "comercial", "operacional", "analise"]
+
+highlights:
+  - "1o lugar no Data Science Day 2024 da FAE e 2o lugar em competicao de dashboards da instituicao."
+  - "Cursos de Power BI e Python - Hashtag Treinamentos | Ingles intermediario."
+
+forbidden_claims:
+  - "formado em Administracao"
+  - "experiencia internacional nao comprovada"
+  - "dominio de Azure sem evidencia"

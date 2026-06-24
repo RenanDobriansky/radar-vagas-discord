@@ -1,0 +1,17 @@
+{
+  "provider": "fixture",
+  "provider_job_id": "de-001",
+  "title": "Engenheiro de Dados Junior",
+  "company": "Empresa Dados",
+  "location": "Remoto Brasil",
+  "work_mode": "remoto",
+  "employment_type": "CLT",
+  "description": "Desenvolver ETL, pipelines, Python, SQL, PostgreSQL, integracao de dados e modelagem para analytics.",
+  "salary": null,
+  "published_at": "2026-06-23T08:00:00Z",
+  "updated_at": "2026-06-23T10:00:00Z",
+  "url": "https://example.com/jobs/de-001",
+  "source_name": "Fixture",
+  "search_term": "Engenheiro de Dados",
+  "collected_at": "2026-06-23T11:30:00Z"
+}

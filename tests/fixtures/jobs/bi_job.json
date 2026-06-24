@@ -1,0 +1,17 @@
+{
+  "provider": "fixture",
+  "provider_job_id": "bi-001",
+  "title": "Analista de BI Junior",
+  "company": "Empresa BI",
+  "location": "Curitiba - PR",
+  "work_mode": "hibrido",
+  "employment_type": "CLT",
+  "description": "Responsavel por desenvolver dashboards, medidas DAX, Power BI, Power Query e consultas SQL para indicadores de negocio.",
+  "salary": null,
+  "published_at": "2026-06-23T08:00:00Z",
+  "updated_at": "2026-06-23T10:00:00Z",
+  "url": "https://example.com/jobs/bi-001",
+  "source_name": "Fixture",
+  "search_term": "Analista de BI",
+  "collected_at": "2026-06-23T11:30:00Z"
+}
