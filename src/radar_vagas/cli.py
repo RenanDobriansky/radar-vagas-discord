@@ -9,6 +9,7 @@ from radar_vagas import __version__
 from radar_vagas.config import load_runtime_settings
 from radar_vagas.providers.base import ProviderError
 from radar_vagas.providers.jooble import JoobleProvider
+from radar_vagas.providers.remotive import RemotiveProvider
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--provider",
-        choices=["jooble"],
+        choices=["jooble", "remotive"],
         help="Executa um diagnostico simples do provider informado.",
     )
     parser.add_argument(
@@ -48,6 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=20,
         help="Quantidade desejada de resultados por pagina.",
+    )
+    parser.add_argument(
+        "--category",
+        default="",
+        help="Categoria opcional suportada pelo provider quando aplicavel.",
     )
     return parser
 
@@ -77,6 +83,45 @@ def main(argv: list[str] | None = None) -> int:
             "provider": "jooble",
             "term": args.term,
             "location": args.location,
+            "page": args.page,
+            "results_per_page": args.results_per_page,
+            "fetched": len(jobs),
+            "jobs": [
+                {
+                    "provider_job_id": job.provider_job_id,
+                    "title": job.title,
+                    "company": job.company,
+                    "location": job.location,
+                    "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+                    "url": str(job.url),
+                }
+                for job in jobs
+            ],
+        }
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.provider == "remotive":
+        if not args.dry_run:
+            parser.error("Use --dry-run com --provider remotive para o diagnostico provisório.")
+
+        try:
+            provider = RemotiveProvider()
+            jobs = provider.fetch_jobs(
+                term=args.term,
+                location=args.location,
+                page=args.page,
+                results_per_page=args.results_per_page,
+                category=args.category or None,
+            )
+        except ProviderError as exc:
+            parser.exit(1, f"Erro no provider Remotive: {exc}\n")
+
+        summary = {
+            "provider": "remotive",
+            "term": args.term,
+            "location": args.location,
+            "category": args.category or None,
             "page": args.page,
             "results_per_page": args.results_per_page,
             "fetched": len(jobs),
