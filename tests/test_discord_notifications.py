@@ -231,6 +231,44 @@ def test_send_test_message_sends_fictitious_docx(tmp_path: Path) -> None:
     assert receipt.message_id == "message-4"
 
 
+def test_send_test_message_uses_temporary_directory_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = RuntimeSettings.model_validate(
+        {"discord_webhook_url": "https://discord.example/webhook", "_env_file": None}
+    )
+    captured_paths: list[Path] = []
+
+    def fake_send_job_notification(
+        *,
+        webhook_url: str,
+        evaluated_job: EvaluatedJob,
+        resume_artifact: ResumeArtifact,
+        client: httpx.Client | None = None,
+        sleep_func: object = None,
+    ) -> DiscordMessageReceipt:
+        del webhook_url, evaluated_job, client, sleep_func
+        captured_paths.append(resume_artifact.file_path)
+        assert resume_artifact.file_path.exists()
+        return DiscordMessageReceipt(
+            message_id="message-temp",
+            status_code=200,
+            attachment_name=resume_artifact.file_name,
+            attempts=1,
+        )
+
+    monkeypatch.setattr(
+        "radar_vagas.notifications.discord.send_job_notification",
+        fake_send_job_notification,
+    )
+
+    receipt = send_test_message(settings=settings)
+
+    assert receipt.message_id == "message-temp"
+    assert len(captured_paths) == 1
+    assert not captured_paths[0].exists()
+
+
 def test_cli_test_discord(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

@@ -20,6 +20,7 @@ config/candidate_profile.local.yaml
 output/resumes/*
 !output/resumes/.gitkeep
 data/*.bak
+data/*.backup.json
 data/*.tmp
 
 # IDE and OS

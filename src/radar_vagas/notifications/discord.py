@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 import time
 import zipfile
 from dataclasses import dataclass
@@ -160,7 +161,32 @@ def send_test_message(
             "DISCORD_WEBHOOK_URL is required to test Discord notifications"
         )
 
-    target_directory = output_directory or Path("output/resumes")
+    if output_directory is None:
+        with tempfile.TemporaryDirectory(prefix="radar_vagas_discord_test_") as temp_directory:
+            return _send_test_message_to_directory(
+                settings=settings,
+                output_directory=Path(temp_directory),
+                client=client,
+                sleep_func=sleep_func,
+            )
+
+    return _send_test_message_to_directory(
+        settings=settings,
+        output_directory=output_directory,
+        client=client,
+        sleep_func=sleep_func,
+    )
+
+
+def _send_test_message_to_directory(
+    *,
+    settings: RuntimeSettings,
+    output_directory: Path,
+    client: httpx.Client | None,
+    sleep_func: Callable[[float], None],
+) -> DiscordMessageReceipt:
+    """Envia a mensagem de teste usando um diretorio de saida ja resolvido."""
+    target_directory = output_directory
     target_directory.mkdir(parents=True, exist_ok=True)
     attachment_path = target_directory / "Curriculo_Teste_Discord_Radar_Vagas.docx"
     _create_test_docx(attachment_path)
