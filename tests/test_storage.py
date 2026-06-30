@@ -39,8 +39,10 @@ def build_evaluated_job(job: JobPosting, **overrides: object) -> EvaluatedJob:
         "job": job,
         "score": 82,
         "priority": Priority.GOOD,
-        "matched_skills": ["SQL", "Power BI"],
-        "missing_skills": ["Python"],
+        "required_skills": ["SQL", "Power BI", "Python"],
+        "matched_candidate_skills": ["SQL", "Power BI"],
+        "candidate_skill_gaps": ["Python"],
+        "optional_job_skills": ["Excel"],
         "extracted_keywords": ["sql", "power bi"],
         "relevant_domains": ["bi"],
         "rejection_reasons": [],
@@ -84,7 +86,8 @@ def test_storage_persists_and_reloads_history(tmp_path: Path) -> None:
     stored_record = next(iter(reloaded.jobs.values()))
     assert stored_record.status is JobStatus.QUEUED
     assert stored_record.priority is Priority.GOOD
-    assert stored_record.matched_skills == ["SQL", "Power BI"]
+    assert stored_record.matched_candidate_skills == ["SQL", "Power BI"]
+    assert stored_record.candidate_skill_gaps == ["Python"]
     assert stored_record.job_snapshot.title == job.title
     assert stored_record.first_seen_at == datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
     assert stored_record.last_seen_at == datetime(2026, 6, 23, 12, 0, tzinfo=UTC)

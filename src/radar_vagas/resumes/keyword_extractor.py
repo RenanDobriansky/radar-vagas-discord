@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from radar_vagas.config import ProfileConfig
 from radar_vagas.models import JobPosting, Seniority
-from radar_vagas.scoring import _detect_seniority
+from radar_vagas.scoring import _analyze_skills, _detect_seniority
 from radar_vagas.text_utils import normalize_text
 
 DOMAIN_KEYWORDS = {
@@ -41,8 +41,10 @@ class KeywordExtraction:
 
     target_title: str
     seniority: Seniority
-    matched_skills: list[str] = field(default_factory=list)
-    missing_skills: list[str] = field(default_factory=list)
+    required_skills: list[str] = field(default_factory=list)
+    matched_candidate_skills: list[str] = field(default_factory=list)
+    candidate_skill_gaps: list[str] = field(default_factory=list)
+    optional_job_skills: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     responsibilities: list[str] = field(default_factory=list)
     relevant_domains: list[str] = field(default_factory=list)
@@ -52,19 +54,7 @@ class KeywordExtraction:
 def extract_job_keywords(job: JobPosting, config: ProfileConfig) -> KeywordExtraction:
     """Extrai keywords, ferramentas e sinais de aderencia sem usar IA."""
     combined_text = normalize_text(f"{job.title} {job.description}")
-    matched_skills: list[str] = []
-    missing_skills: list[str] = []
-
-    sorted_skills = sorted(
-        config.scoring.skill_weights.items(),
-        key=lambda item: (-item[1], item[0]),
-    )
-    for skill_name, _weight in sorted_skills:
-        aliases = [normalize_text(alias) for alias in config.scoring.skill_aliases[skill_name]]
-        if any(alias and alias in combined_text for alias in aliases):
-            matched_skills.append(skill_name)
-        else:
-            missing_skills.append(skill_name)
+    skill_assessment = _analyze_skills(job, config)
 
     relevant_domains = [
         domain
@@ -75,7 +65,8 @@ def extract_job_keywords(job: JobPosting, config: ProfileConfig) -> KeywordExtra
     responsibilities = _extract_responsibilities(job.description)
     ats_keywords = _build_ats_keywords(
         title=job.title,
-        matched_skills=matched_skills,
+        required_skills=skill_assessment.required_skills,
+        matched_candidate_skills=skill_assessment.matched_candidate_skills,
         domains=relevant_domains,
         responsibilities=responsibilities,
     )
@@ -83,9 +74,13 @@ def extract_job_keywords(job: JobPosting, config: ProfileConfig) -> KeywordExtra
     return KeywordExtraction(
         target_title=job.title.strip(),
         seniority=_detect_seniority(job, config),
-        matched_skills=matched_skills,
-        missing_skills=missing_skills,
-        tools=matched_skills.copy(),
+        required_skills=skill_assessment.required_skills,
+        matched_candidate_skills=skill_assessment.matched_candidate_skills,
+        candidate_skill_gaps=skill_assessment.candidate_skill_gaps,
+        optional_job_skills=skill_assessment.optional_job_skills,
+        tools=(
+            skill_assessment.matched_candidate_skills + skill_assessment.optional_job_skills
+        ),
         responsibilities=responsibilities,
         relevant_domains=relevant_domains,
         ats_keywords=ats_keywords,
@@ -108,13 +103,14 @@ def _extract_responsibilities(description: str) -> list[str]:
 def _build_ats_keywords(
     *,
     title: str,
-    matched_skills: list[str],
+    required_skills: list[str],
+    matched_candidate_skills: list[str],
     domains: list[str],
     responsibilities: list[str],
 ) -> list[str]:
     ordered_keywords: list[str] = []
     seen_keywords: set[str] = set()
-    candidates = [title, *matched_skills, *domains, *responsibilities]
+    candidates = [title, *required_skills, *matched_candidate_skills, *domains, *responsibilities]
 
     for candidate in candidates:
         normalized = normalize_text(candidate)

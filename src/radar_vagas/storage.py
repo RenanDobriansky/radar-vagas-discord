@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from pathlib import Path
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from radar_vagas.deduplication import (
     DuplicateReason,
@@ -78,8 +78,10 @@ class StoredJobRecord(BaseModel):
     job_snapshot: JobPosting
     score: int | None = Field(default=None, ge=0, le=100)
     priority: Priority | None = None
-    matched_skills: list[str] = Field(default_factory=list)
-    missing_skills: list[str] = Field(default_factory=list)
+    required_skills: list[str] = Field(default_factory=list)
+    matched_candidate_skills: list[str] = Field(default_factory=list)
+    candidate_skill_gaps: list[str] = Field(default_factory=list)
+    optional_job_skills: list[str] = Field(default_factory=list)
     extracted_keywords: list[str] = Field(default_factory=list)
     relevant_domains: list[str] = Field(default_factory=list)
     rejection_reasons: list[str] = Field(default_factory=list)
@@ -108,6 +110,34 @@ class StoredJobRecord(BaseModel):
     @classmethod
     def sanitize_error_message(cls, value: str | None) -> str | None:
         return _normalize_error_message(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_skill_fields(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+
+        payload = dict(data)
+        if "matched_candidate_skills" not in payload and "matched_skills" in payload:
+            payload["matched_candidate_skills"] = payload["matched_skills"]
+        if "candidate_skill_gaps" not in payload and "missing_skills" in payload:
+            payload["candidate_skill_gaps"] = payload["missing_skills"]
+        if "required_skills" not in payload:
+            payload["required_skills"] = payload.get("matched_candidate_skills") or payload.get(
+                "matched_skills",
+                [],
+            )
+        if "optional_job_skills" not in payload:
+            payload["optional_job_skills"] = []
+        return payload
+
+    @property
+    def matched_skills(self) -> list[str]:
+        return self.matched_candidate_skills
+
+    @property
+    def missing_skills(self) -> list[str]:
+        return self.candidate_skill_gaps
 
 
 class HistoryDocument(BaseModel):
@@ -270,8 +300,10 @@ class JobHistoryStore:
             job_snapshot=job_snapshot,
             score=score,
             priority=priority,
-            matched_skills=[],
-            missing_skills=[],
+            required_skills=[],
+            matched_candidate_skills=[],
+            candidate_skill_gaps=[],
+            optional_job_skills=[],
             extracted_keywords=[],
             relevant_domains=[],
             rejection_reasons=[],
@@ -491,8 +523,24 @@ class JobHistoryStore:
                 if evaluated_job is not None
                 else _priority_from_score(score)
             ),
-            matched_skills=evaluated_job.matched_skills.copy() if evaluated_job is not None else [],
-            missing_skills=evaluated_job.missing_skills.copy() if evaluated_job is not None else [],
+            required_skills=(
+                evaluated_job.required_skills.copy() if evaluated_job is not None else []
+            ),
+            matched_candidate_skills=(
+                evaluated_job.matched_candidate_skills.copy()
+                if evaluated_job is not None
+                else []
+            ),
+            candidate_skill_gaps=(
+                evaluated_job.candidate_skill_gaps.copy()
+                if evaluated_job is not None
+                else []
+            ),
+            optional_job_skills=(
+                evaluated_job.optional_job_skills.copy()
+                if evaluated_job is not None
+                else []
+            ),
             extracted_keywords=(
                 evaluated_job.extracted_keywords.copy() if evaluated_job is not None else []
             ),
@@ -620,8 +668,10 @@ def _retry_backoff_for_attempt(attempt: int) -> timedelta:
 
 def _update_record_from_evaluation(record: StoredJobRecord, evaluated_job: EvaluatedJob) -> None:
     record.priority = evaluated_job.priority
-    record.matched_skills = evaluated_job.matched_skills.copy()
-    record.missing_skills = evaluated_job.missing_skills.copy()
+    record.required_skills = evaluated_job.required_skills.copy()
+    record.matched_candidate_skills = evaluated_job.matched_candidate_skills.copy()
+    record.candidate_skill_gaps = evaluated_job.candidate_skill_gaps.copy()
+    record.optional_job_skills = evaluated_job.optional_job_skills.copy()
     record.extracted_keywords = evaluated_job.extracted_keywords.copy()
     record.relevant_domains = evaluated_job.relevant_domains.copy()
     record.rejection_reasons = evaluated_job.rejection_reasons.copy()

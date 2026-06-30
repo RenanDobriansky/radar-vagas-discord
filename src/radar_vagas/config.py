@@ -179,10 +179,61 @@ class ScoringWeightsConfig(BaseModel):
         return value
 
 
+class _RatioConfig(BaseModel):
+    @field_validator("*")
+    @classmethod
+    def validate_ratio(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("scoring ratios must be between 0 and 1")
+        return value
+
+
+class TitleScoringRatios(_RatioConfig):
+    exact: float = 1.0
+    close: float = 0.88
+    related: float = 0.60
+    partial: float = 0.32
+
+
+class SeniorityScoringRatios(_RatioConfig):
+    junior: float = 1.0
+    unspecified: float = 0.80
+    midlevel: float = 0.53
+    assistant: float = 0.47
+
+
+class LocationScoringRatios(_RatioConfig):
+    exact: float = 1.0
+    metro: float = 0.87
+    remote_compatible: float = 1.0
+    remote_unspecified: float = 0.40
+    hybrid_unspecified: float = 0.40
+
+
+class FreshnessScoringRatios(_RatioConfig):
+    same_day: float = 1.0
+    recent: float = 0.80
+    week: float = 0.50
+    stale: float = 0.20
+
+
+class SkillScoringRatios(_RatioConfig):
+    optional_detected: float = 0.35
+
+
+class ScoringRatiosConfig(BaseModel):
+    title: TitleScoringRatios = Field(default_factory=TitleScoringRatios)
+    seniority: SeniorityScoringRatios = Field(default_factory=SeniorityScoringRatios)
+    location: LocationScoringRatios = Field(default_factory=LocationScoringRatios)
+    freshness: FreshnessScoringRatios = Field(default_factory=FreshnessScoringRatios)
+    skills: SkillScoringRatios = Field(default_factory=SkillScoringRatios)
+
+
 class ScoringConfig(BaseModel):
     """Configuracoes do algoritmo deterministico de scoring."""
 
     weights: ScoringWeightsConfig
+    ratios: ScoringRatiosConfig = Field(default_factory=ScoringRatiosConfig)
     related_title_keywords: list[str] = Field(default_factory=list)
     partial_title_keywords: list[str] = Field(default_factory=list)
     skill_weights: dict[str, int] = Field(default_factory=dict)

@@ -46,9 +46,11 @@ def _build_evaluated_job() -> EvaluatedJob:
         job=job,
         score=88,
         priority=Priority.HIGH,
-        matched_skills=["Power BI", "SQL", "Python"],
-        missing_skills=["ETL"],
-        extracted_keywords=["power bi", "sql", "python"],
+        required_skills=["Power BI", "SQL", "Python", "ETL"],
+        matched_candidate_skills=["Power BI", "SQL", "Python"],
+        candidate_skill_gaps=["ETL"],
+        optional_job_skills=["Excel"],
+        extracted_keywords=["power bi", "sql", "python", "etl"],
         relevant_domains=["bi"],
         rejection_reasons=[],
         is_eligible=True,
@@ -98,6 +100,9 @@ def test_send_job_notification_success_with_attachment(tmp_path: Path) -> None:
     assert "multipart/form-data" in request.headers["Content-Type"]
     assert "payload_json" in body
     assert '"parse": []' in body
+    assert "Competencias identificadas na vaga" in body
+    assert "Competencias aderentes do candidato" in body
+    assert "Lacunas reais" in body
     assert artifact.file_name in body
     assert receipt.message_id == "message-1"
     assert receipt.status_code == 200

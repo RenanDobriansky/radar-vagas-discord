@@ -90,6 +90,7 @@ class JobPosting(BaseModel):
     title: NonEmptyStr
     company: str | None = None
     location: str | None = None
+    seniority: Seniority | None = None
     work_mode: WorkMode | None = None
     employment_type: str | None = None
     description: str = ""
@@ -120,14 +121,46 @@ class EvaluatedJob(BaseModel):
     job: JobPosting
     score: int = Field(ge=0, le=100)
     priority: Priority
-    matched_skills: list[str] = Field(default_factory=list)
-    missing_skills: list[str] = Field(default_factory=list)
+    required_skills: list[str] = Field(default_factory=list)
+    matched_candidate_skills: list[str] = Field(default_factory=list)
+    candidate_skill_gaps: list[str] = Field(default_factory=list)
+    optional_job_skills: list[str] = Field(default_factory=list)
     extracted_keywords: list[str] = Field(default_factory=list)
     relevant_domains: list[str] = Field(default_factory=list)
     rejection_reasons: list[str] = Field(default_factory=list)
     is_eligible: bool
     fingerprint: NonEmptyStr
     score_explanation: NonEmptyStr
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_skill_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        payload = dict(data)
+        if "matched_candidate_skills" not in payload and "matched_skills" in payload:
+            payload["matched_candidate_skills"] = payload["matched_skills"]
+        if "candidate_skill_gaps" not in payload and "missing_skills" in payload:
+            payload["candidate_skill_gaps"] = payload["missing_skills"]
+        if "required_skills" not in payload:
+            payload["required_skills"] = payload.get("matched_candidate_skills") or payload.get(
+                "matched_skills",
+                [],
+            )
+        if "optional_job_skills" not in payload:
+            payload["optional_job_skills"] = []
+        return payload
+
+    @property
+    def matched_skills(self) -> list[str]:
+        """Compatibilidade com a nomenclatura anterior."""
+        return self.matched_candidate_skills
+
+    @property
+    def missing_skills(self) -> list[str]:
+        """Compatibilidade com a nomenclatura anterior."""
+        return self.candidate_skill_gaps
 
 
 class ResumeArtifact(BaseModel):

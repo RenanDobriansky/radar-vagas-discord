@@ -51,8 +51,10 @@ def test_evaluated_job_enforces_score_range() -> None:
             "job": job,
             "score": 85,
             "priority": Priority.HIGH,
-            "matched_skills": ["SQL", "Power BI"],
-            "missing_skills": ["Azure"],
+            "required_skills": ["SQL", "Power BI", "Azure"],
+            "matched_candidate_skills": ["SQL", "Power BI"],
+            "candidate_skill_gaps": ["Azure"],
+            "optional_job_skills": ["Excel"],
             "extracted_keywords": ["sql", "power bi"],
             "relevant_domains": ["bi"],
             "rejection_reasons": [],
@@ -64,6 +66,7 @@ def test_evaluated_job_enforces_score_range() -> None:
 
     assert evaluated.score == 85
     assert evaluated.priority is Priority.HIGH
+    assert evaluated.candidate_skill_gaps == ["Azure"]
 
 
 def test_resume_artifact_normalizes_generated_at_to_utc() -> None:

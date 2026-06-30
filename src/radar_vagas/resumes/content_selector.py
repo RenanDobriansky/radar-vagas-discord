@@ -83,7 +83,9 @@ def _select_skills(
 ) -> tuple[list[str], list[str]]:
     selected: list[tuple[str, str, int]] = []
     extraction_terms = _build_extraction_terms(
-        extraction.matched_skills,
+        extraction.matched_candidate_skills,
+        extraction.required_skills,
+        extraction.optional_job_skills,
         extraction.ats_keywords,
         extraction.relevant_domains,
         extraction.tools,
@@ -113,7 +115,8 @@ def _select_skills(
 def _select_summary(extraction: KeywordExtraction, resume_profile: ResumeProfile) -> str:
     scored_blocks: list[tuple[int, str]] = []
     extraction_terms = _build_extraction_terms(
-        extraction.matched_skills,
+        extraction.matched_candidate_skills,
+        extraction.required_skills,
         extraction.relevant_domains,
         [extraction.target_title],
     )
@@ -135,7 +138,8 @@ def _select_experiences(
     resume_profile: ResumeProfile,
 ) -> list[SelectedExperience]:
     extraction_terms = _build_extraction_terms(
-        extraction.matched_skills,
+        extraction.matched_candidate_skills,
+        extraction.required_skills,
         extraction.relevant_domains,
         extraction.ats_keywords,
         extraction.responsibilities,
@@ -185,7 +189,8 @@ def _select_projects(
     config: ProfileConfig,
 ) -> list[SelectedProject]:
     extraction_terms = _build_extraction_terms(
-        extraction.matched_skills,
+        extraction.matched_candidate_skills,
+        extraction.required_skills,
         extraction.relevant_domains,
         extraction.ats_keywords,
         extraction.responsibilities,
@@ -236,7 +241,8 @@ def _select_additional_experience(
     resume_profile: ResumeProfile,
 ) -> list[SelectedAdditionalExperience]:
     extraction_terms = _build_extraction_terms(
-        extraction.matched_skills,
+        extraction.matched_candidate_skills,
+        extraction.required_skills,
         extraction.relevant_domains,
         extraction.ats_keywords,
         extraction.responsibilities,

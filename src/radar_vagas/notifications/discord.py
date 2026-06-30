@@ -208,9 +208,11 @@ def _send_test_message_to_directory(
         job=job,
         score=92,
         priority=Priority.HIGH,
-        matched_skills=["Power BI", "SQL", "Python"],
-        missing_skills=["ETL"],
-        extracted_keywords=["power bi", "sql", "python"],
+        required_skills=["Power BI", "SQL", "Python", "ETL"],
+        matched_candidate_skills=["Power BI", "SQL", "Python"],
+        candidate_skill_gaps=["ETL"],
+        optional_job_skills=["Excel"],
+        extracted_keywords=["power bi", "sql", "python", "etl"],
         relevant_domains=["bi"],
         rejection_reasons=[],
         is_eligible=True,
@@ -258,8 +260,18 @@ def _build_webhook_payload(*, evaluated_job: EvaluatedJob) -> dict[str, Any]:
             _build_field("Localizacao", job.location or "Nao informada"),
             _build_field("Score", f"{evaluated_job.score}/100"),
             _build_field("Prioridade", _format_priority(evaluated_job.priority)),
-            _build_field("Competencias aderentes", _join_values(evaluated_job.matched_skills)),
-            _build_field("Competencias ausentes", _join_values(evaluated_job.missing_skills)),
+            _build_field(
+                "Competencias identificadas na vaga",
+                _format_identified_job_skills(evaluated_job),
+            ),
+            _build_field(
+                "Competencias aderentes do candidato",
+                _join_values(evaluated_job.matched_candidate_skills),
+            ),
+            _build_field(
+                "Lacunas reais",
+                _join_values(evaluated_job.candidate_skill_gaps),
+            ),
             _build_field("Data", _format_datetime(timestamp)),
             _build_field("Fonte", job.source_name),
         ],
@@ -283,6 +295,16 @@ def _join_values(values: list[str]) -> str:
     if not values:
         return "Nenhuma"
     return ", ".join(values)
+
+
+def _format_identified_job_skills(evaluated_job: EvaluatedJob) -> str:
+    identified = list(evaluated_job.required_skills)
+    identified.extend(
+        skill
+        for skill in evaluated_job.optional_job_skills
+        if skill not in identified
+    )
+    return _join_values(identified)
 
 
 def _truncate(value: str, limit: int) -> str:
