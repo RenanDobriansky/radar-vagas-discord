@@ -3,8 +3,8 @@ name: Radar de Vagas
 "on":
   workflow_dispatch:
     inputs:
-      upload_resume_artifact:
-        description: "Publica os curriculos gerados como artifact temporario"
+      upload_sanitized_report:
+        description: "Publica um relatorio sanitizado da execucao"
         required: false
         default: false
         type: boolean
@@ -15,26 +15,49 @@ name: Radar de Vagas
       timezone: "America/Sao_Paulo"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: radar-vagas-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  radar:
+  validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        run: pytest
+
+  radar:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-      JOOBLE_API_KEY: ${{ secrets.JOOBLE_API_KEY }}
-      CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
-      CANDIDATE_PHONE: ${{ secrets.CANDIDATE_PHONE }}
-      CANDIDATE_PROFILE_YAML: ${{ secrets.CANDIDATE_PROFILE_YAML }}
       CANDIDATE_PROFILE_PATH: config/candidate_profile.local.yaml
       ENVIRONMENT: production
       LOG_LEVEL: INFO
       PYTHONUTF8: "1"
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -52,9 +75,18 @@ jobs:
         run: |
           set -euo pipefail
           echo "RESUME_OUTPUT_DIRECTORY=${RUNNER_TEMP}/radar-resumes" >> "${GITHUB_ENV}"
+          echo "RADAR_SUMMARY_PATH=${RUNNER_TEMP}/radar-summary.json" >> "${GITHUB_ENV}"
+          echo "SANITIZED_ARTIFACT_DIRECTORY=${RUNNER_TEMP}/radar-artifacts" >> "${GITHUB_ENV}"
+          echo "SANITIZED_REPORT_PATH=${RUNNER_TEMP}/radar-artifacts/radar-summary-sanitized.json" >> "${GITHUB_ENV}"
 
       - name: Validate required secrets
         shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          JOOBLE_API_KEY: ${{ secrets.JOOBLE_API_KEY }}
+          CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
+          CANDIDATE_PHONE: ${{ secrets.CANDIDATE_PHONE }}
+          CANDIDATE_PROFILE_YAML: ${{ secrets.CANDIDATE_PROFILE_YAML }}
         run: |
           set -euo pipefail
           required_vars=(
@@ -71,43 +103,89 @@ jobs:
             fi
           done
 
-      - name: Materialize candidate profile
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p config "${RESUME_OUTPUT_DIRECTORY}"
-          printf '%s\n' "${CANDIDATE_PROFILE_YAML}" > "${CANDIDATE_PROFILE_PATH}"
-          chmod 600 "${CANDIDATE_PROFILE_PATH}"
-
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
-      - name: Lint
-        run: ruff check .
-
-      - name: Test
-        run: pytest
+      - name: Materialize candidate profile
+        shell: bash
+        env:
+          CANDIDATE_PROFILE_YAML: ${{ secrets.CANDIDATE_PROFILE_YAML }}
+        run: |
+          set -euo pipefail
+          mkdir -p config "${RESUME_OUTPUT_DIRECTORY}" "${SANITIZED_ARTIFACT_DIRECTORY}"
+          printf '%s\n' "${CANDIDATE_PROFILE_YAML}" > "${CANDIDATE_PROFILE_PATH}"
+          chmod 600 "${CANDIDATE_PROFILE_PATH}"
 
       - name: Run radar
         shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          JOOBLE_API_KEY: ${{ secrets.JOOBLE_API_KEY }}
+          CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
+          CANDIDATE_PHONE: ${{ secrets.CANDIDATE_PHONE }}
         run: |
           set -euo pipefail
-          extra_args=()
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.upload_resume_artifact }}" == "true" ]]; then
-            extra_args+=(--save-resumes)
-          fi
-          python -m radar_vagas "${extra_args[@]}"
+          python -m radar_vagas | tee "${RADAR_SUMMARY_PATH}"
 
-      - name: Upload generated resumes
-        if: github.event_name == 'workflow_dispatch' && inputs.upload_resume_artifact == true
+      - name: Build sanitized execution report
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.upload_sanitized_report == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${SANITIZED_ARTIFACT_DIRECTORY}"
+          if [[ ! -f "${RADAR_SUMMARY_PATH}" ]]; then
+            printf '{\n  "status": "summary_unavailable"\n}\n' > "${SANITIZED_REPORT_PATH}"
+            exit 0
+          fi
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          input_path = Path(os.environ["RADAR_SUMMARY_PATH"])
+          output_path = Path(os.environ["SANITIZED_REPORT_PATH"])
+          summary = json.loads(input_path.read_text(encoding="utf-8"))
+
+          report = {
+              "dry_run": summary.get("dry_run"),
+              "provider_names": summary.get("provider_names", []),
+              "queries_executed": summary.get("queries_executed"),
+              "fetched_jobs": summary.get("fetched_jobs"),
+              "deduplicated_jobs": summary.get("deduplicated_jobs"),
+              "execution_duplicates": summary.get("execution_duplicates"),
+              "skipped_existing_jobs": summary.get("skipped_existing_jobs"),
+              "evaluated_jobs": summary.get("evaluated_jobs"),
+              "rejected_jobs": summary.get("rejected_jobs"),
+              "eligible_jobs": summary.get("eligible_jobs"),
+              "selected_jobs": summary.get("selected_jobs"),
+              "resumes_generated": summary.get("resumes_generated"),
+              "invalid_resumes": summary.get("invalid_resumes"),
+              "resume_failures": summary.get("resume_failures"),
+              "notifications_sent": summary.get("notifications_sent"),
+              "notification_failures": summary.get("notification_failures"),
+              "history_records_pruned": summary.get("history_records_pruned"),
+              "files_removed": summary.get("files_removed"),
+              "generated_files_count": len(summary.get("generated_files", [])),
+              "provider_failure_count": len(summary.get("provider_failures", [])),
+          }
+
+          output_path.write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload sanitized execution report
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_sanitized_report == true
         uses: actions/upload-artifact@v4
         with:
-          name: radar-resumes-${{ github.run_id }}
-          path: ${{ env.RESUME_OUTPUT_DIRECTORY }}/*.docx
-          if-no-files-found: ignore
+          name: radar-sanitized-report-${{ github.run_id }}
+          path: ${{ env.SANITIZED_REPORT_PATH }}
+          if-no-files-found: error
           retention-days: 3
 
       - name: Commit updated job history
@@ -144,3 +222,4 @@ jobs:
           set -euo pipefail
           rm -f "${CANDIDATE_PROFILE_PATH}"
           rm -rf "${RESUME_OUTPUT_DIRECTORY}"
+          rm -rf "${SANITIZED_ARTIFACT_DIRECTORY}"

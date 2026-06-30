@@ -15,7 +15,7 @@ O projeto ja esta funcional nas frentes principais:
 - persistencia em `data/seen_jobs.json`
 - pipeline completo via CLI e GitHub Actions
 
-Na ultima validacao local, `ruff check .` passou e `pytest --cov=src/radar_vagas --cov-report=term-missing` retornou `86 passed` com cobertura total de `89%`.
+Na ultima validacao local, `ruff check .` passou e `pytest --cov=src/radar_vagas --cov-report=term-missing` retornou `115 passed` com cobertura total de `90%`.
 
 ## Stack
 
@@ -150,17 +150,52 @@ Curriculo_Renan_Dobriansky_<Empresa>_<Cargo>.docx
 
 ## GitHub Actions
 
-O workflow principal fica em `.github/workflows/radar.yml`.
+O repositorio agora separa validacao continua de execucao produtiva:
 
-Ele executa:
+- `.github/workflows/ci.yml`
+- `.github/workflows/radar.yml`
+
+### CI
+
+O workflow `CI` executa em:
+
+- `push`
+- `pull_request`
+- `workflow_dispatch`
+
+Ele roda:
+
+- `ruff check .`
+- `pytest`
+
+Esse workflow usa apenas `permissions: contents: read` e nao recebe secrets produtivos.
+
+### Radar
+
+O workflow `Radar de Vagas` executa em:
 
 - `workflow_dispatch`
 - agendamento de segunda a sexta as `08:00` e `14:00`
 - timezone `America/Sao_Paulo`
+
+Ele roda:
+
 - `ruff check .`
 - `pytest`
 - `python -m radar_vagas`
 - commit automatico de `data/seen_jobs.json` apenas quando houver alteracao
+
+As permissoes ficaram separadas assim:
+
+- nivel do workflow: `contents: read`
+- job de validacao: `contents: read`
+- job produtivo `radar`: `contents: write`
+
+Os secrets deixaram de ficar no escopo do job inteiro e agora sao injetados somente nestes passos:
+
+- `Validate required secrets`
+- `Materialize candidate profile`
+- `Run radar`
 
 ### Secrets obrigatorios
 
@@ -172,14 +207,24 @@ Ele executa:
 
 O secret `CANDIDATE_PROFILE_YAML` deve conter o conteudo completo de `config/candidate_profile.local.yaml`. O workflow recria esse arquivo apenas no runner, usa `RESUME_OUTPUT_DIRECTORY` temporario para os DOCX e remove os arquivos sensiveis ao final.
 
+O workflow produtivo nao publica curriculos reais como artifact. No `workflow_dispatch`, ele pode publicar apenas um relatorio sanitizado da execucao com `upload_sanitized_report=true`.
+
+### Dependabot
+
+O arquivo `.github/dependabot.yml` monitora:
+
+- dependencias Python (`pip`)
+- GitHub Actions
+
 ### Validacao manual inicial
 
 1. Abra `Actions` no GitHub.
 2. Execute o workflow `Radar de Vagas` com `workflow_dispatch`.
 3. Confirme que `Lint`, `Test` e `Run radar` concluem com sucesso.
-4. Se quiser inspecionar os curriculos gerados manualmente, rode com `upload_resume_artifact=true`.
+4. Se quiser um artifact do run manual, use `upload_sanitized_report=true`.
 5. Verifique se apenas `data/seen_jobs.json` foi commitado automaticamente quando houver alteracao.
-6. Rode uma segunda execucao e confirme que vagas ja notificadas nao sao reenviadas.
+6. Confirme que o job produtivo nao publica `.docx` como artifact.
+7. Rode uma segunda execucao e confirme que vagas ja notificadas nao sao reenviadas.
 
 ## Estrutura do repositorio
 
