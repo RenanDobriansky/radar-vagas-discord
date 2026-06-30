@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
@@ -167,6 +168,14 @@ def load_status_by_provider_job_id(history_path: Path) -> dict[str, JobStatus]:
     }
 
 
+def load_record_by_provider_job_id(history_path: Path, provider_job_id: str):
+    store = JobHistoryStore(history_path)
+    for record in store.jobs.values():
+        if record.provider_job_id == provider_job_id:
+            return record
+    raise KeyError(provider_job_id)
+
+
 def capture_file_name(target: list[str]):
     def _sender(
         *,
@@ -242,14 +251,17 @@ def test_pipeline_continues_when_resume_generation_fails(tmp_path: Path) -> None
     )
 
     statuses = load_status_by_provider_job_id(history_path)
+    failed_record = load_record_by_provider_job_id(history_path, "job-1")
     assert summary.resume_failures == 1
     assert summary.notifications_sent == 1
-    assert statuses["job-1"] is JobStatus.RESUME_FAILED
+    assert statuses["job-1"] is JobStatus.RETRY_PENDING
+    assert failed_record.attempts == 1
+    assert failed_record.last_error_code == "resume_generation_failed"
     assert statuses["job-2"] is JobStatus.NOTIFIED
     assert sent_files == ["resume_job-2.docx"]
 
 
-def test_pipeline_marks_invalid_resume_and_skips_notification(tmp_path: Path) -> None:
+def test_pipeline_marks_invalid_resume_and_schedules_retry(tmp_path: Path) -> None:
     history_path = tmp_path / "seen_jobs.json"
     job = build_job(provider_job_id="job-1")
     notifications: list[str] = []
@@ -265,13 +277,15 @@ def test_pipeline_marks_invalid_resume_and_skips_notification(tmp_path: Path) ->
     )
 
     statuses = load_status_by_provider_job_id(history_path)
+    failed_record = load_record_by_provider_job_id(history_path, "job-1")
     assert summary.invalid_resumes == 1
     assert summary.notifications_sent == 0
     assert notifications == []
-    assert statuses["job-1"] is JobStatus.RESUME_FAILED
+    assert statuses["job-1"] is JobStatus.RETRY_PENDING
+    assert failed_record.last_error_code == "resume_invalid"
 
 
-def test_pipeline_marks_notification_failure_and_continues(tmp_path: Path) -> None:
+def test_pipeline_marks_notification_failure_and_schedules_retry(tmp_path: Path) -> None:
     history_path = tmp_path / "seen_jobs.json"
     job = build_job(provider_job_id="job-1")
 
@@ -295,9 +309,11 @@ def test_pipeline_marks_notification_failure_and_continues(tmp_path: Path) -> No
     )
 
     statuses = load_status_by_provider_job_id(history_path)
+    failed_record = load_record_by_provider_job_id(history_path, "job-1")
     assert summary.notification_failures == 1
     assert summary.notifications_sent == 0
-    assert statuses["job-1"] is JobStatus.NOTIFICATION_FAILED
+    assert statuses["job-1"] is JobStatus.RETRY_PENDING
+    assert failed_record.last_error_code == "discord_notification_failed"
 
 
 def test_pipeline_processes_multiple_jobs_with_distinct_resumes(tmp_path: Path) -> None:
@@ -323,7 +339,192 @@ def test_pipeline_processes_multiple_jobs_with_distinct_resumes(tmp_path: Path) 
     assert summary.files_removed == 2
 
 
-def test_pipeline_repeated_execution_skips_history_duplicates(tmp_path: Path) -> None:
+def test_pipeline_keeps_excess_eligible_jobs_queued_for_next_execution(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    sent_files: list[str] = []
+    jobs = [
+        build_job(provider_job_id="job-1", company="Empresa A"),
+        build_job(provider_job_id="job-2", company="Empresa B"),
+    ]
+
+    first_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"], max_jobs=1),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider(jobs)},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name(sent_files),
+    )
+    queued_record = load_record_by_provider_job_id(history_path, "job-2")
+
+    second_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"], max_jobs=1),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([])},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name(sent_files),
+    )
+
+    assert first_summary.notifications_sent == 1
+    assert queued_record.status is JobStatus.QUEUED
+    assert second_summary.notifications_sent == 1
+    assert sent_files == ["resume_job-1.docx", "resume_job-2.docx"]
+    assert load_status_by_provider_job_id(history_path)["job-2"] is JobStatus.NOTIFIED
+
+
+def test_pipeline_retries_resume_failure_on_later_execution(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    sent_files: list[str] = []
+    job = build_job(provider_job_id="job-1")
+
+    first_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([job])},
+        resume_generator=build_resume_generator(failing_ids={"job-1"}),
+        notification_sender=capture_file_name(sent_files),
+        reference_time=datetime(2026, 6, 25, 12, 0, tzinfo=UTC),
+    )
+    second_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([])},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name(sent_files),
+        reference_time=datetime(2026, 6, 25, 13, 30, tzinfo=UTC),
+    )
+
+    assert first_summary.resume_failures == 1
+    assert second_summary.notifications_sent == 1
+    assert load_status_by_provider_job_id(history_path)["job-1"] is JobStatus.NOTIFIED
+    assert sent_files == ["resume_job-1.docx"]
+
+
+def test_pipeline_retries_notification_failure_on_later_execution(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    sent_files: list[str] = []
+    job = build_job(provider_job_id="job-1")
+
+    def failing_sender(
+        *,
+        webhook_url: str,
+        evaluated_job: object,
+        resume_artifact: object,
+    ) -> None:
+        del webhook_url, evaluated_job, resume_artifact
+        raise DiscordNotificationError("discord offline")
+
+    first_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([job])},
+        resume_generator=build_resume_generator(),
+        notification_sender=failing_sender,
+        reference_time=datetime(2026, 6, 25, 12, 0, tzinfo=UTC),
+    )
+    second_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([])},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name(sent_files),
+        reference_time=datetime(2026, 6, 25, 13, 30, tzinfo=UTC),
+    )
+
+    assert first_summary.notification_failures == 1
+    assert second_summary.notifications_sent == 1
+    assert load_status_by_provider_job_id(history_path)["job-1"] is JobStatus.NOTIFIED
+    assert sent_files == ["resume_job-1.docx"]
+
+
+def test_pipeline_respects_next_retry_at(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    notifications: list[str] = []
+    job = build_job(provider_job_id="job-1")
+
+    run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([job])},
+        resume_generator=build_resume_generator(failing_ids={"job-1"}),
+        notification_sender=capture_file_name(notifications),
+        reference_time=datetime(2026, 6, 25, 12, 0, tzinfo=UTC),
+    )
+    second_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([])},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name(notifications),
+        reference_time=datetime(2026, 6, 25, 12, 30, tzinfo=UTC),
+    )
+
+    record = load_record_by_provider_job_id(history_path, "job-1")
+    assert second_summary.selected_jobs == 0
+    assert second_summary.notifications_sent == 0
+    assert record.status is JobStatus.RETRY_PENDING
+    assert notifications == []
+
+
+def test_pipeline_moves_failed_job_to_dead_letter_after_retry_limit(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    notifications: list[str] = []
+    job = build_job(provider_job_id="job-1")
+
+    run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([job])},
+        resume_generator=build_resume_generator(failing_ids={"job-1"}),
+        notification_sender=capture_file_name(notifications),
+        reference_time=datetime(2026, 6, 25, 12, 0, tzinfo=UTC),
+    )
+    run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([])},
+        resume_generator=build_resume_generator(failing_ids={"job-1"}),
+        notification_sender=capture_file_name(notifications),
+        reference_time=datetime(2026, 6, 25, 13, 30, tzinfo=UTC),
+    )
+    third_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([])},
+        resume_generator=build_resume_generator(failing_ids={"job-1"}),
+        notification_sender=capture_file_name(notifications),
+        reference_time=datetime(2026, 6, 25, 15, 30, tzinfo=UTC),
+    )
+
+    record = load_record_by_provider_job_id(history_path, "job-1")
+    assert third_summary.resume_failures == 1
+    assert record.status is JobStatus.DEAD_LETTER
+    assert record.attempts == 3
+    assert record.next_retry_at is None
+
+
+def test_pipeline_repeated_execution_skips_notified_history_duplicates(tmp_path: Path) -> None:
     history_path = tmp_path / "seen_jobs.json"
     sent_files: list[str] = []
     job = build_job(provider_job_id="job-1")
@@ -353,6 +554,38 @@ def test_pipeline_repeated_execution_skips_history_duplicates(tmp_path: Path) ->
     assert second_summary.skipped_existing_jobs == 1
     assert second_summary.notifications_sent == 0
     assert sent_files == ["resume_job-1.docx"]
+
+
+def test_pipeline_repeated_execution_skips_rejected_history_duplicates(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    job = build_job(
+        provider_job_id="job-1",
+        title="Analista Comercial",
+        description="Excel e reporting operacional.",
+    )
+
+    first_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([job])},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name([]),
+    )
+    second_summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([job])},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name([]),
+    )
+
+    assert first_summary.rejected_jobs == 1
+    assert second_summary.skipped_existing_jobs == 1
+    assert load_status_by_provider_job_id(history_path)["job-1"] is JobStatus.REJECTED
 
 
 def test_pipeline_dry_run_does_not_persist_history_or_send_notifications(tmp_path: Path) -> None:

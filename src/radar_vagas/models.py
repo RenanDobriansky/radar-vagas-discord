@@ -56,11 +56,11 @@ class JobStatus(StrEnum):
     """Status persistidos para o historico das vagas."""
 
     REJECTED = "rejected"
-    ELIGIBLE = "eligible"
+    QUEUED = "queued"
     RESUME_GENERATED = "resume_generated"
-    RESUME_FAILED = "resume_failed"
+    RETRY_PENDING = "retry_pending"
     NOTIFIED = "notified"
-    NOTIFICATION_FAILED = "notification_failed"
+    DEAD_LETTER = "dead_letter"
 
 
 class WorkMode(StrEnum):

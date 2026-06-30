@@ -15,6 +15,7 @@ htmlcov/
 
 # Local candidate data
 config/candidate_profile.local.yaml
+PLANO_REAJUSTE_RADAR_VAGAS_CODEX.md
 
 # Generated outputs
 output/resumes/*

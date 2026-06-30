@@ -17,7 +17,7 @@ from radar_vagas.config import (
     load_runtime_settings,
 )
 from radar_vagas.deduplication import deduplicate_jobs
-from radar_vagas.models import EvaluatedJob, JobPosting, JobStatus, ResumeArtifact
+from radar_vagas.models import EvaluatedJob, JobPosting, JobStatus, Priority, ResumeArtifact
 from radar_vagas.notifications.discord import DiscordNotificationError, send_job_notification
 from radar_vagas.providers.base import JobProvider, ProviderError
 from radar_vagas.providers.jooble import JoobleProvider
@@ -27,7 +27,7 @@ from radar_vagas.resumes.generator import generate_resume
 from radar_vagas.resumes.keyword_extractor import extract_job_keywords
 from radar_vagas.resumes.profile import ResumeProfile, load_resume_profile
 from radar_vagas.scoring import evaluate_job
-from radar_vagas.storage import DEFAULT_HISTORY_PATH, JobHistoryStore
+from radar_vagas.storage import DEFAULT_HISTORY_PATH, JobHistoryStore, StoredJobRecord
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,7 @@ def run_pipeline(
     temporary_directory = _build_temporary_directory(options)
 
     try:
+        pending_jobs = _load_pending_jobs(history=history, reference_time=now)
         fetched_jobs = _fetch_jobs(
             selected_providers=selected_providers,
             factories=factories,
@@ -149,10 +150,11 @@ def run_pipeline(
                 if not options.dry_run:
                     history.record_job(
                         job,
-                        status=JobStatus.ELIGIBLE,
+                        status=JobStatus.QUEUED,
                         score=evaluated_job.score,
                         seen_at=now,
                         fingerprint=evaluated_job.fingerprint,
+                        evaluated_job=evaluated_job,
                     )
             else:
                 summary.rejected_jobs += 1
@@ -163,17 +165,14 @@ def run_pipeline(
                         score=evaluated_job.score,
                         seen_at=now,
                         fingerprint=evaluated_job.fingerprint,
+                        evaluated_job=evaluated_job,
                     )
 
-        evaluated_jobs.sort(
-            key=lambda item: (
-                -item.score,
-                -(item.job.updated_at or item.job.published_at or now).timestamp(),
-                item.job.title,
-            )
-        )
-        summary.eligible_jobs = len(evaluated_jobs)
-        selected_jobs = evaluated_jobs[: effective_config.search.maximum_jobs_per_run]
+        pending_jobs.sort(key=lambda item: _evaluated_job_sort_key(item, now))
+        evaluated_jobs.sort(key=lambda item: _evaluated_job_sort_key(item, now))
+        ordered_candidates = pending_jobs + evaluated_jobs
+        summary.eligible_jobs = len(ordered_candidates)
+        selected_jobs = ordered_candidates[: effective_config.search.maximum_jobs_per_run]
         summary.selected_jobs = len(selected_jobs)
 
         if selected_jobs:
@@ -330,12 +329,14 @@ def _process_selected_job(
         if not artifact.is_valid:
             summary.invalid_resumes += 1
             if not options.dry_run:
-                history.record_job(
+                history.record_failure(
                     evaluated_job.job,
-                    status=JobStatus.RESUME_FAILED,
                     score=evaluated_job.score,
+                    error_code="resume_invalid",
+                    error_message="Resume validation failed before notification",
                     seen_at=now,
                     fingerprint=evaluated_job.fingerprint,
+                    evaluated_job=evaluated_job,
                 )
             return
 
@@ -347,6 +348,7 @@ def _process_selected_job(
                 score=evaluated_job.score,
                 seen_at=now,
                 fingerprint=evaluated_job.fingerprint,
+                evaluated_job=evaluated_job,
             )
 
         if options.dry_run or not config.resume.attach_to_discord:
@@ -360,12 +362,14 @@ def _process_selected_job(
             )
         except DiscordNotificationError:
             summary.notification_failures += 1
-            history.record_job(
+            history.record_failure(
                 evaluated_job.job,
-                status=JobStatus.NOTIFICATION_FAILED,
                 score=evaluated_job.score,
+                error_code="discord_notification_failed",
+                error_message="Discord notification failed",
                 seen_at=now,
                 fingerprint=evaluated_job.fingerprint,
+                evaluated_job=evaluated_job,
             )
             return
 
@@ -377,8 +381,9 @@ def _process_selected_job(
             seen_at=now,
             notified_at=now,
             fingerprint=evaluated_job.fingerprint,
+            evaluated_job=evaluated_job,
         )
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "resume processing failed: title=%r company=%r",
             evaluated_job.job.title,
@@ -386,12 +391,14 @@ def _process_selected_job(
         )
         summary.resume_failures += 1
         if not options.dry_run:
-            history.record_job(
+            history.record_failure(
                 evaluated_job.job,
-                status=JobStatus.RESUME_FAILED,
                 score=evaluated_job.score,
+                error_code="resume_generation_failed",
+                error_message=f"Resume generation failed ({type(exc).__name__})",
                 seen_at=now,
                 fingerprint=evaluated_job.fingerprint,
+                evaluated_job=evaluated_job,
             )
         return
     finally:
@@ -504,3 +511,48 @@ def _should_preserve_resumes(*, config: ProfileConfig, options: PipelineOptions)
     if options.save_resumes:
         return True
     return config.resume.keep_generated_files and not options.dry_run
+
+
+def _load_pending_jobs(
+    *,
+    history: JobHistoryStore,
+    reference_time: datetime,
+) -> list[EvaluatedJob]:
+    return [
+        _record_to_evaluated_job(record)
+        for record in history.get_processable_records(reference_time=reference_time)
+    ]
+
+
+def _record_to_evaluated_job(record: StoredJobRecord) -> EvaluatedJob:
+    score = record.score or 0
+    priority = record.priority or _priority_from_score(score)
+    return EvaluatedJob(
+        job=record.job_snapshot.model_copy(deep=True),
+        score=score,
+        priority=priority,
+        matched_skills=record.matched_skills.copy(),
+        missing_skills=record.missing_skills.copy(),
+        extracted_keywords=record.extracted_keywords.copy(),
+        relevant_domains=record.relevant_domains.copy(),
+        rejection_reasons=record.rejection_reasons.copy(),
+        is_eligible=True,
+        fingerprint=record.fingerprint,
+        score_explanation=record.score_explanation or "Queued from persisted history",
+    )
+
+
+def _evaluated_job_sort_key(
+    item: EvaluatedJob,
+    reference_time: datetime,
+) -> tuple[float, float, str]:
+    timestamp = item.job.updated_at or item.job.published_at or reference_time
+    return (-item.score, -timestamp.timestamp(), item.job.title)
+
+
+def _priority_from_score(score: int) -> Priority:
+    if score >= 85:
+        return Priority.HIGH
+    if score >= 70:
+        return Priority.GOOD
+    return Priority.BELOW_THRESHOLD
