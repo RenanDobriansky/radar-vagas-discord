@@ -181,7 +181,7 @@ jobs:
 
       - name: Upload sanitized execution report
         if: github.event_name == 'workflow_dispatch' && inputs.upload_sanitized_report == true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: radar-sanitized-report-${{ github.run_id }}
           path: ${{ env.SANITIZED_REPORT_PATH }}
