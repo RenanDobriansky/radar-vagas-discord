@@ -19,7 +19,7 @@ permissions:
 
 concurrency:
   group: radar-vagas-${{ github.ref }}
-  queue: max
+  cancel-in-progress: false
 
 jobs:
   radar:
@@ -31,7 +31,6 @@ jobs:
       CANDIDATE_PHONE: ${{ secrets.CANDIDATE_PHONE }}
       CANDIDATE_PROFILE_YAML: ${{ secrets.CANDIDATE_PROFILE_YAML }}
       CANDIDATE_PROFILE_PATH: config/candidate_profile.local.yaml
-      RESUME_OUTPUT_DIRECTORY: ${{ runner.temp }}/radar-resumes
       ENVIRONMENT: production
       LOG_LEVEL: INFO
       PYTHONUTF8: "1"
@@ -47,6 +46,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
+
+      - name: Prepare runtime directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RESUME_OUTPUT_DIRECTORY=${RUNNER_TEMP}/radar-resumes" >> "${GITHUB_ENV}"
 
       - name: Validate required secrets
         shell: bash
@@ -71,9 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p config "${RESUME_OUTPUT_DIRECTORY}"
-          cat <<'EOF' > "${CANDIDATE_PROFILE_PATH}"
-          ${CANDIDATE_PROFILE_YAML}
-          EOF
+          printf '%s\n' "${CANDIDATE_PROFILE_YAML}" > "${CANDIDATE_PROFILE_PATH}"
           chmod 600 "${CANDIDATE_PROFILE_PATH}"
 
       - name: Upgrade pip
@@ -103,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: radar-resumes-${{ github.run_id }}
-          path: ${{ runner.temp }}/radar-resumes/*.docx
+          path: ${{ env.RESUME_OUTPUT_DIRECTORY }}/*.docx
           if-no-files-found: ignore
           retention-days: 3
 
