@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import httpx
 import pytest
 import respx
@@ -148,45 +146,3 @@ def test_remotive_provider_supports_local_pagination_slice() -> None:
 
     assert route.calls[0].request.url.params["limit"] == "4"
     assert [job.provider_job_id for job in jobs] == ["3", "4"]
-
-
-def test_cli_remotive_dry_run_diagnostic(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    from radar_vagas.cli import main
-
-    class StubProvider:
-        def fetch_jobs(
-            self,
-            *,
-            term: str,
-            location: str,
-            page: int = 1,
-            results_per_page: int = 20,
-            category: str | None = None,
-        ) -> list[object]:
-            return []
-
-    monkeypatch.setattr("radar_vagas.cli.RemotiveProvider", StubProvider)
-
-    exit_code = main(
-        [
-            "--provider",
-            "remotive",
-            "--dry-run",
-            "--term",
-            "data",
-            "--location",
-            "Curitiba",
-            "--category",
-            "software-dev",
-        ]
-    )
-
-    captured = capsys.readouterr()
-    payload = json.loads(captured.out)
-    assert exit_code == 0
-    assert payload["provider"] == "remotive"
-    assert payload["category"] == "software-dev"
-    assert payload["fetched"] == 0

@@ -1,10 +1,10 @@
 # Radar de Vagas
 
-Projeto Python para buscar, filtrar e priorizar vagas aderentes ao perfil profissional de Renan, com evolucao planejada para notificacoes no Discord e geracao de curriculos ATS em DOCX.
+Projeto Python para buscar, filtrar, priorizar e notificar vagas aderentes ao perfil profissional de Renan, com geracao deterministica de curriculos ATS em DOCX e envio por webhook do Discord.
 
 ## Status
 
-Esta primeira etapa inicializa a estrutura do projeto, as configuracoes base, a documentacao e os testes smoke. Integracoes reais com APIs, Discord e curriculos ainda nao foram implementadas.
+O projeto ja possui pipeline integrado com providers, scoring deterministico, historico local, geracao de curriculos e notificacao no Discord. As credenciais e o perfil profissional real continuam locais e fora do versionamento.
 
 ## Requisitos
 
@@ -28,16 +28,31 @@ Se o launcher `py` nao estiver disponivel, use o executavel absoluto do Python 3
 ```powershell
 ruff check .
 pytest
-python -m radar_vagas
+python -m radar_vagas --dry-run
+python -m radar_vagas --dry-run --provider remotive --max-jobs 3 --save-resumes
+python -m radar_vagas --provider jooble --minimum-score 75 --verbose
+python -m radar_vagas --generate-resume tests/fixtures/jobs/bi_job.json
+python -m radar_vagas --test-discord
 ```
+
+## Fluxo da CLI
+
+- `python -m radar_vagas` executa o pipeline completo com os termos e localizacoes definidos em `config/profile.yaml`.
+- `--dry-run` busca, pontua e gera curriculos sem enviar mensagens e sem alterar `data/seen_jobs.json`.
+- `--provider jooble` ou `--provider remotive` limita as fontes processadas. A opcao pode ser repetida.
+- `--minimum-score` e `--max-jobs` sobrescrevem os limites configurados.
+- `--save-resumes` preserva os DOCX gerados; sem ela, arquivos temporarios sao removidos ao final.
+- `--generate-resume CAMINHO_JSON` gera um DOCX para uma vaga normalizada em JSON.
+- `--test-discord` envia uma mensagem de teste com um DOCX ficticio.
+- `--verbose` ativa logs detalhados.
 
 ## Estrutura inicial
 
 ```text
 src/radar_vagas/      Codigo-fonte do pacote
 config/               Configuracoes YAML e exemplos
-data/                 Persistencia local planejada
-output/resumes/       Saida de curriculos gerados no futuro
+data/                 Persistencia local do historico
+output/resumes/       Saida de curriculos gerados
 tests/                Testes automatizados
 Context/              Documentos de especificacao originais
 ```
@@ -52,4 +67,3 @@ Context/              Documentos de especificacao originais
 ## Especificacao
 
 Os arquivos `CONTEXTO_RADAR_VAGAS_DISCORD.md` e `GUIA_CODEX_RADAR_VAGAS_DISCORD.md` devem ser tratados como a fonte principal de requisitos do projeto.
-

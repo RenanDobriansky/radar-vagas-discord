@@ -14,11 +14,11 @@ def test_package_import_exposes_version() -> None:
 
 def test_python_module_entrypoint_runs_successfully() -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "radar_vagas"],
+        [sys.executable, "-m", "radar_vagas", "--version"],
         check=False,
         capture_output=True,
         text=True,
     )
 
     assert result.returncode == 0
-    assert "Radar de Vagas inicializado" in result.stdout
+    assert "radar_vagas 0.1.0" in result.stdout

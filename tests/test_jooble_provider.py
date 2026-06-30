@@ -6,8 +6,6 @@ import httpx
 import pytest
 import respx
 
-from radar_vagas.cli import main
-from radar_vagas.config import RuntimeSettings
 from radar_vagas.providers.base import (
     ProviderAuthenticationError,
     ProviderRequestError,
@@ -152,76 +150,3 @@ def test_jooble_provider_skips_incomplete_payload_items() -> None:
 def test_jooble_provider_requires_api_key() -> None:
     with pytest.raises(ProviderAuthenticationError, match="JOOBLE_API_KEY"):
         build_provider(api_key="  ")
-
-
-def test_cli_jooble_dry_run_diagnostic(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setattr(
-        "radar_vagas.cli.load_runtime_settings",
-        lambda: RuntimeSettings.model_validate(
-            {"jooble_api_key": "test-api-key", "_env_file": None}
-        ),
-    )
-
-    class StubProvider:
-        def __init__(self, *, api_key: str) -> None:
-            self.api_key = api_key
-
-        def fetch_jobs(
-            self,
-            *,
-            term: str,
-            location: str,
-            page: int = 1,
-            results_per_page: int = 20,
-        ) -> list[object]:
-            return []
-
-    monkeypatch.setattr("radar_vagas.cli.JoobleProvider", StubProvider)
-
-    exit_code = main(
-        [
-            "--provider",
-            "jooble",
-            "--dry-run",
-            "--term",
-            "Analista de Dados",
-            "--location",
-            "Curitiba",
-        ]
-    )
-
-    captured = capsys.readouterr()
-    payload = json.loads(captured.out)
-    assert exit_code == 0
-    assert payload["provider"] == "jooble"
-    assert payload["fetched"] == 0
-
-
-def test_cli_jooble_dry_run_requires_api_key(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setattr(
-        "radar_vagas.cli.load_runtime_settings",
-        lambda: RuntimeSettings.model_validate({"_env_file": None}),
-    )
-
-    with pytest.raises(SystemExit) as exc_info:
-        main(
-            [
-                "--provider",
-                "jooble",
-                "--dry-run",
-                "--term",
-                "Analista de Dados",
-                "--location",
-                "Curitiba",
-            ]
-        )
-
-    captured = capsys.readouterr()
-    assert exc_info.value.code == 1
-    assert "JOOBLE_API_KEY is required" in captured.err

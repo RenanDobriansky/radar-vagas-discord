@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "jobs": {
+    "b33f0de14df918bb24d3bc684395901fe7c64497db9323824f1be4506ad1f459": {
+      "provider": "remotive",
+      "provider_job_id": "2091038",
+      "title": "Sales Assistant",
+      "company": "Endureed by Global Innovation",
+      "url": "https://remotive.com/remote-jobs/sales/sales-assistant-2091038",
+      "normalized_url": "https://remotive.com/remote-jobs/sales/sales-assistant-2091038",
+      "fingerprint": "b33f0de14df918bb24d3bc684395901fe7c64497db9323824f1be4506ad1f459",
+      "score": 10,
+      "status": "rejected",
+      "first_seen_at": "2026-06-30T03:43:43.299544Z",
+      "last_seen_at": "2026-06-30T03:43:43.299544Z",
+      "notified_at": null
+    },
+    "7aca29b9ebec9c00d28a5495f2a6bf3eadaba4925084bae1817b2e05e12c45fc": {
+      "provider": "remotive",
+      "provider_job_id": "2091035",
+      "title": "Mid/Senior AI Cinematic Video Editor",
+      "company": "EverAI",
+      "url": "https://remotive.com/remote-jobs/all-others/mid-senior-ai-cinematic-video-editor-2091035",
+      "normalized_url": "https://remotive.com/remote-jobs/all-others/mid-senior-ai-cinematic-video-editor-2091035",
+      "fingerprint": "7aca29b9ebec9c00d28a5495f2a6bf3eadaba4925084bae1817b2e05e12c45fc",
+      "score": 26,
+      "status": "rejected",
+      "first_seen_at": "2026-06-30T03:43:43.299544Z",
+      "last_seen_at": "2026-06-30T03:43:43.299544Z",
+      "notified_at": null
+    },
+    "ce4eb11ed4588c5a742104aaf53fe0397f05833eb4f039a9c7ccf71e5d8187f7": {
+      "provider": "remotive",
+      "provider_job_id": "2090984",
+      "title": "Senior Product Manager",
+      "company": "Lemon.io",
+      "url": "https://remotive.com/remote-jobs/product/senior-product-manager-2090984",
+      "normalized_url": "https://remotive.com/remote-jobs/product/senior-product-manager-2090984",
+      "fingerprint": "ce4eb11ed4588c5a742104aaf53fe0397f05833eb4f039a9c7ccf71e5d8187f7",
+      "score": 11,
+      "status": "rejected",
+      "first_seen_at": "2026-06-30T03:43:43.299544Z",
+      "last_seen_at": "2026-06-30T03:43:43.299544Z",
+      "notified_at": null
+    }
+  }
+}

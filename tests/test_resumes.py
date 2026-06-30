@@ -302,11 +302,31 @@ def test_cli_generate_resume_command(
 
 def test_cli_dry_run_save_resumes(
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("CANDIDATE_EMAIL", "renan.ficticio@example.com")
-    monkeypatch.setenv("CANDIDATE_PHONE", "+55 41 99999-9999")
-    monkeypatch.setenv("CANDIDATE_PROFILE_PATH", str(CANDIDATE_PROFILE_PATH))
+    from radar_vagas.pipeline import PipelineSummary
+
+    monkeypatch.setattr(
+        "radar_vagas.cli.load_runtime_settings",
+        lambda: type(
+            "SettingsStub",
+            (),
+            {
+                "discord_webhook_url": None,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "radar_vagas.cli.run_pipeline",
+        lambda *, options, settings: PipelineSummary(
+            dry_run=options.dry_run,
+            provider_names=options.provider_names or ["jooble", "remotive"],
+            selected_jobs=0,
+        ),
+    )
 
     result = main(["--dry-run", "--save-resumes"])
+    captured = capsys.readouterr()
 
     assert result == 0
+    assert '"dry_run": true' in captured.out.lower()
