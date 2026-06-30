@@ -204,8 +204,12 @@ def test_send_job_notification_retries_on_timeout(tmp_path: Path) -> None:
     assert slept == [1, 2]
 
 
-def test_send_test_message_requires_discord_configuration(tmp_path: Path) -> None:
-    settings = RuntimeSettings.model_validate({"_env_file": None})
+def test_send_test_message_requires_discord_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
+    settings = RuntimeSettings(_env_file=None)
 
     with pytest.raises(DiscordConfigurationError, match="DISCORD_WEBHOOK_URL"):
         send_test_message(settings=settings, output_directory=tmp_path)
