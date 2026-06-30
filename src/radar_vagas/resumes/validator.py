@@ -71,12 +71,10 @@ def validate_resume_artifact(
     if document.inline_shapes:
         errors.append("resume must not contain images or shapes")
 
-    interrupted_markers = [
-        normalize_text("ESIC"),
-        normalize_text("Administracao"),
-        normalize_text("Curso interrompido"),
-    ]
-    if not all(marker in normalized_text for marker in interrupted_markers):
-        errors.append("ESIC Administracao must remain marked as Curso interrompido")
+    mentions_esic = normalize_text("ESIC") in normalized_text
+    mentions_administracao = normalize_text("Administracao") in normalized_text
+    mentions_interrupted = normalize_text("Curso interrompido") in normalized_text
+    if (mentions_esic or mentions_administracao) and not mentions_interrupted:
+        errors.append("ESIC or Administracao must remain marked as Curso interrompido")
 
     return errors

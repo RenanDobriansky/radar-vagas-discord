@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from hashlib import sha256
+from math import ceil
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -21,12 +23,22 @@ from radar_vagas.models import (
     ResumeArtifact,
     utc_now,
 )
-from radar_vagas.resumes.content_selector import SelectedResumeContent
+from radar_vagas.resumes.content_selector import (
+    SelectedAdditionalExperience,
+    SelectedExperience,
+    SelectedProject,
+    SelectedResumeContent,
+)
 from radar_vagas.resumes.file_names import build_resume_file_name
 from radar_vagas.resumes.keyword_extractor import extract_job_keywords
 from radar_vagas.resumes.profile import ResumeProfile
 from radar_vagas.resumes.validator import validate_resume_artifact
 from radar_vagas.text_utils import make_job_fingerprint, normalize_text
+
+ESTIMATED_LINES_PER_PAGE = 24
+SUMMARY_CHARS_PER_LINE = 118
+SKILLS_CHARS_PER_LINE = 104
+MAX_SKILLS_AFTER_BUDGET = 8
 
 
 def generate_resume(
@@ -41,35 +53,40 @@ def generate_resume(
     directory = output_directory or config.resume.output_directory
     target_directory = Path(directory)
     target_directory.mkdir(parents=True, exist_ok=True)
+    prepared_content = _prepare_render_content(
+        content=content,
+        resume_profile=resume_profile,
+        config=config,
+    )
 
     file_name = build_resume_file_name(
         company=job.company or "Empresa",
-        title=content.target_title,
+        title=prepared_content.target_title,
         pattern=config.resume.file_name_pattern,
     )
     file_path = target_directory / file_name
 
     document = Document()
     _configure_document_styles(document)
-    _build_document(document, content, resume_profile)
+    _build_document(document, prepared_content, resume_profile)
     file_path = _save_document_with_fallback(document, file_path)
     file_name = file_path.name
 
     file_hash = sha256(file_path.read_bytes()).hexdigest()
     artifact = ResumeArtifact(
         job_fingerprint=make_job_fingerprint(job.title, job.company, job.location),
-        target_title=content.target_title,
+        target_title=prepared_content.target_title,
         company=job.company or "Empresa",
         file_path=file_path,
         file_name=file_name,
         file_sha256=file_hash,
-        selected_skill_ids=content.selected_skill_ids,
+        selected_skill_ids=prepared_content.selected_skill_ids,
         selected_experience_bullet_ids=[
             bullet_id
-            for experience in content.experiences
+            for experience in prepared_content.experiences
             for bullet_id in experience.bullet_ids
         ],
-        selected_project_ids=[project.project.id for project in content.projects],
+        selected_project_ids=[project.project.id for project in prepared_content.projects],
         generated_at=utc_now(),
         validation_errors=[],
         is_valid=False,
@@ -181,7 +198,7 @@ def _build_document(
         paragraph.add_run(" ".join(selected_project.bullets))
 
     _add_section(document, "FORMACAO E DESTAQUES")
-    for education_item in _order_education_items(content.education):
+    for education_item in content.education:
         paragraph = document.add_paragraph(style="Job Header")
         paragraph.add_run(f"{education_item.course} - {education_item.institution}")
         education_range = _format_date_range(
@@ -320,8 +337,7 @@ def _add_grouped_skills(
     skill_map = {
         skill.id: skill for skill in resume_profile.candidate_profile.skills
     }
-    selected_ids = content.selected_skill_ids
-    segments = _build_skill_segments(selected_ids, skill_map)
+    segments = _build_skill_segments(content.selected_skill_ids, skill_map)
 
     runs_added = 0
     for title, values in segments:
@@ -358,7 +374,7 @@ def _build_skill_segments(
     if programacao:
         segments.append(("Programacao", programacao))
 
-    ferramentas = _build_tools_segment(skill_map)
+    ferramentas = _build_tools_segment(skill_map, normalized_ids)
     if ferramentas:
         segments.append(("Ferramentas", ferramentas))
 
@@ -424,7 +440,14 @@ def _build_business_intelligence_segment(
         _skill_label(skill_map, "power_bi", selected_ids),
         _skill_label(skill_map, "dax", selected_ids),
         _skill_label(skill_map, "power_query", selected_ids),
-        "modelagem de dados e dashboards",
+        _skill_label(skill_map, "modelagem_dados", selected_ids),
+        _extract_profile_terms(
+            skill_map,
+            "power_bi",
+            selected_ids,
+            alias_whitelist=set(),
+            tag_whitelist={"dashboard", "indicadores"},
+        ),
     )
 
 
@@ -436,8 +459,13 @@ def _build_data_segment(
         return None
     return _unique_join(
         _skill_label(skill_map, "sql", selected_ids),
-        _extract_aliases(skill_map, "sql", selected_ids, {"postgresql", "firebird"}),
-        "tratamento, validacao e qualidade de dados",
+        _extract_profile_terms(
+            skill_map,
+            "sql",
+            selected_ids,
+            {"postgresql", "firebird", "sql server"},
+            tag_whitelist={"tratamento", "validacao", "qualidade de dados"},
+        ),
     )
 
 
@@ -452,10 +480,14 @@ def _build_programming_segment(
     return _append_parenthetical(python_value, python_details)
 
 
-def _build_tools_segment(skill_map: dict[str, CandidateSkill]) -> str | None:
-    if "git" not in skill_map or "excel" not in skill_map:
-        return None
-    return "Git/GitHub e Excel"
+def _build_tools_segment(
+    skill_map: dict[str, CandidateSkill],
+    selected_ids: set[str],
+) -> str | None:
+    return _unique_join(
+        _skill_label(skill_map, "git", selected_ids),
+        _skill_label(skill_map, "excel", selected_ids),
+    )
 
 
 def _build_python_details(
@@ -467,7 +499,7 @@ def _build_python_details(
 
     python_skill = skill_map.get("python")
     if python_skill is None:
-        return "automacoes e ETL"
+        return None
 
     detail_parts: list[str] = []
     alias_values = {normalize_text(alias) for alias in python_skill.aliases}
@@ -476,16 +508,29 @@ def _build_python_details(
     if "pandas" in alias_values:
         detail_parts.append("Pandas")
 
-    has_automation = "automacao" in tag_values
-    has_etl = "etl" in tag_values or "etl" in selected_ids
-    if has_automation and has_etl:
-        detail_parts.append("automacoes e ETL")
-    elif has_automation:
-        detail_parts.append("automacoes")
-    elif has_etl:
+    if "automacao" in tag_values:
+        detail_parts.append("automacao")
+    if "etl" in tag_values or "etl" in selected_ids:
         detail_parts.append("ETL")
 
     return ", ".join(detail_parts) or None
+
+
+def _extract_profile_terms(
+    skill_map: dict[str, CandidateSkill],
+    skill_id: str,
+    selected_ids: set[str],
+    alias_whitelist: set[str],
+    *,
+    tag_whitelist: set[str] | None = None,
+) -> str | None:
+    return _extract_aliases(
+        skill_map,
+        skill_id,
+        selected_ids,
+        alias_whitelist,
+        tag_whitelist=tag_whitelist,
+    )
 
 
 def _append_parenthetical(value: str | None, details: str | None) -> str | None:
@@ -525,11 +570,18 @@ def _order_education_items(
     education_items: list[CandidateEducation],
 ) -> list[CandidateEducation]:
     def ranking(item: CandidateEducation) -> tuple[int, str]:
+        course = normalize_text(item.course)
         status = normalize_text(item.status)
-        if "interrompido" in status:
+        institution = normalize_text(item.institution)
+
+        if "ciencia de dados" in course:
             return (0, item.course)
         if "andamento" in status:
             return (1, item.course)
+        if "interrompido" in status:
+            return (3, item.course)
+        if "esic" in institution or "administracao" in course:
+            return (2, item.course)
         return (2, item.course)
 
     return sorted(education_items, key=ranking)
@@ -569,3 +621,190 @@ def _save_document_with_fallback(document: Document, target_path: Path) -> Path:
         "Could not save resume because every candidate file path is locked under "
         f"{target_path.parent}"
     )
+
+
+def _prepare_render_content(
+    *,
+    content: SelectedResumeContent,
+    resume_profile: ResumeProfile,
+    config: ProfileConfig,
+) -> SelectedResumeContent:
+    prepared = SelectedResumeContent(
+        target_title=content.target_title,
+        summary=content.summary.strip(),
+        skills=content.skills.copy(),
+        selected_skill_ids=content.selected_skill_ids.copy(),
+        experiences=[
+            SelectedExperience(
+                experience=entry.experience,
+                bullet_ids=entry.bullet_ids.copy(),
+                bullet_texts=entry.bullet_texts.copy(),
+            )
+            for entry in content.experiences
+        ],
+        projects=[
+            SelectedProject(
+                project=entry.project,
+                bullets=entry.bullets.copy(),
+            )
+            for entry in content.projects
+        ],
+        education=_order_education_items(content.education.copy()),
+        highlights=content.highlights.copy(),
+        additional_experience=[
+            SelectedAdditionalExperience(experience=entry.experience)
+            for entry in content.additional_experience
+        ],
+    )
+    return _apply_content_budget(prepared, resume_profile, config)
+
+
+def _apply_content_budget(
+    content: SelectedResumeContent,
+    resume_profile: ResumeProfile,
+    config: ProfileConfig,
+) -> SelectedResumeContent:
+    line_budget = max(
+        ESTIMATED_LINES_PER_PAGE,
+        config.resume.preferred_max_pages * ESTIMATED_LINES_PER_PAGE,
+    )
+    prepared = content
+
+    while _estimate_rendered_lines(prepared, resume_profile) > line_budget:
+        next_content = (
+            _trim_additional_experience(prepared)
+            or _trim_highlights(prepared)
+            or _trim_projects(prepared)
+            or _trim_experience_bullets(prepared)
+            or _trim_skills(prepared)
+            or _trim_summary(prepared, resume_profile)
+            or _trim_interrupted_education(prepared)
+        )
+        if next_content is None:
+            break
+        prepared = next_content
+
+    return prepared
+
+
+def _estimate_rendered_lines(
+    content: SelectedResumeContent,
+    resume_profile: ResumeProfile,
+) -> int:
+    line_count = 3
+    line_count += 1 + max(1, ceil(len(content.summary) / SUMMARY_CHARS_PER_LINE))
+
+    skill_line = _build_skill_line_text(content, resume_profile)
+    line_count += 1 + max(1, ceil(len(skill_line) / SKILLS_CHARS_PER_LINE))
+    line_count += 1 + sum(1 + len(experience.bullet_texts) for experience in content.experiences)
+    line_count += 1 + len(content.projects)
+    line_count += 1 + len(content.education) + len(content.highlights)
+    if content.additional_experience:
+        line_count += 1 + len(content.additional_experience)
+    return line_count
+
+
+def _build_skill_line_text(
+    content: SelectedResumeContent,
+    resume_profile: ResumeProfile,
+) -> str:
+    skill_map = {
+        skill.id: skill for skill in resume_profile.candidate_profile.skills
+    }
+    segments = _build_skill_segments(content.selected_skill_ids, skill_map)
+    return "  |  ".join(f"{title}: {values}" for title, values in segments)
+
+
+def _trim_additional_experience(
+    content: SelectedResumeContent,
+) -> SelectedResumeContent | None:
+    if not content.additional_experience:
+        return None
+    return replace(
+        content,
+        additional_experience=content.additional_experience[:-1],
+    )
+
+
+def _trim_highlights(content: SelectedResumeContent) -> SelectedResumeContent | None:
+    if len(content.highlights) <= 1:
+        return None
+    return replace(content, highlights=content.highlights[:-1])
+
+
+def _trim_projects(content: SelectedResumeContent) -> SelectedResumeContent | None:
+    if len(content.projects) > 2:
+        return replace(content, projects=content.projects[:-1])
+
+    updated_projects: list[SelectedProject] = []
+    changed = False
+    for project in content.projects:
+        if len(project.bullets) > 1:
+            updated_projects.append(replace(project, bullets=project.bullets[:-1]))
+            changed = True
+        else:
+            updated_projects.append(project)
+
+    if changed:
+        return replace(content, projects=updated_projects)
+    return None
+
+
+def _trim_experience_bullets(
+    content: SelectedResumeContent,
+) -> SelectedResumeContent | None:
+    updated_experiences = content.experiences.copy()
+
+    for index in range(len(updated_experiences) - 1, -1, -1):
+        entry = updated_experiences[index]
+        minimum_bullets = 2 if index == 0 else 1
+        if len(entry.bullet_texts) <= minimum_bullets:
+            continue
+        updated_experiences[index] = replace(
+            entry,
+            bullet_ids=entry.bullet_ids[:-1],
+            bullet_texts=entry.bullet_texts[:-1],
+        )
+        return replace(content, experiences=updated_experiences)
+
+    return None
+
+
+def _trim_skills(content: SelectedResumeContent) -> SelectedResumeContent | None:
+    if len(content.selected_skill_ids) <= MAX_SKILLS_AFTER_BUDGET:
+        return None
+    return replace(
+        content,
+        selected_skill_ids=content.selected_skill_ids[:-1],
+        skills=content.skills[:-1],
+    )
+
+
+def _trim_summary(
+    content: SelectedResumeContent,
+    resume_profile: ResumeProfile,
+) -> SelectedResumeContent | None:
+    matching_blocks = [
+        block.text
+        for block in resume_profile.candidate_profile.summary_blocks
+        if block.text in content.summary
+    ]
+    if len(matching_blocks) >= 2:
+        return replace(content, summary=matching_blocks[0])
+    return None
+
+
+def _trim_interrupted_education(
+    content: SelectedResumeContent,
+) -> SelectedResumeContent | None:
+    interrupted_indexes = [
+        index
+        for index, item in enumerate(content.education)
+        if "interrompido" in normalize_text(item.status)
+    ]
+    if not interrupted_indexes:
+        return None
+
+    updated_education = content.education.copy()
+    updated_education.pop(interrupted_indexes[-1])
+    return replace(content, education=updated_education)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -10,9 +11,13 @@ from docx import Document
 from radar_vagas.cli import main
 from radar_vagas.config import FileConfigurationError, load_candidate_profile, load_profile_config
 from radar_vagas.models import JobPosting, ResumeArtifact
-from radar_vagas.resumes.content_selector import select_resume_content
+from radar_vagas.resumes.content_selector import (
+    SelectedExperience,
+    SelectedProject,
+    select_resume_content,
+)
 from radar_vagas.resumes.file_names import build_resume_file_name
-from radar_vagas.resumes.generator import generate_resume_for_job
+from radar_vagas.resumes.generator import generate_resume, generate_resume_for_job
 from radar_vagas.resumes.keyword_extractor import extract_job_keywords
 from radar_vagas.resumes.profile import ResumeProfile, load_resume_profile
 from radar_vagas.resumes.validator import validate_resume_artifact
@@ -41,6 +46,23 @@ def resume_profile() -> ResumeProfile:
 def load_job_fixture(file_name: str) -> JobPosting:
     path = JOBS_DIR / file_name
     return JobPosting.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def load_document_text(path: Path) -> str:
+    document = Document(path)
+    return "\n".join(paragraph.text for paragraph in document.paragraphs if paragraph.text)
+
+
+def build_minimal_resume_artifact(file_path: Path) -> ResumeArtifact:
+    return ResumeArtifact(
+        job_fingerprint="abc123",
+        target_title="Analista de Dados",
+        company="Empresa Teste",
+        file_path=file_path,
+        file_name=file_path.name,
+        file_sha256="deadbeef",
+        is_valid=False,
+    )
 
 
 def test_load_resume_profile_requires_contact_info() -> None:
@@ -168,8 +190,7 @@ def test_generate_resume_can_be_opened_again(
         output_directory=tmp_path,
     )
 
-    document = Document(artifact.file_path)
-    text = "\n".join(paragraph.text for paragraph in document.paragraphs if paragraph.text)
+    text = load_document_text(artifact.file_path)
     normalized_text = normalize_text(text)
 
     assert artifact.is_valid is True
@@ -183,7 +204,7 @@ def test_generate_resume_can_be_opened_again(
     assert "cursos de power bi e python" in normalized_text
 
 
-def test_generate_resume_includes_richer_skill_groups_and_additional_experience(
+def test_generate_resume_includes_profile_based_skill_groups(
     tmp_path: Path,
     profile_config,
     resume_profile: ResumeProfile,
@@ -197,17 +218,191 @@ def test_generate_resume_includes_richer_skill_groups_and_additional_experience(
         output_directory=tmp_path,
     )
 
-    document = Document(artifact.file_path)
-    text = "\n".join(paragraph.text for paragraph in document.paragraphs if paragraph.text)
+    text = load_document_text(artifact.file_path)
     normalized_text = normalize_text(text)
 
-    expected_data_block = (
-        "dados: sql, postgresql, firebird, tratamento, validacao e qualidade de dados"
+    assert (
+        "dados: sql, postgresql, firebird, sql server, tratamento, "
+        "validacao, qualidade de dados"
+    ) in normalized_text
+    assert "programacao: python (pandas, automacao, etl)" in normalized_text
+    assert "modelagem de dados e dashboards" not in normalized_text
+    assert "git/github e excel" not in normalized_text
+
+
+def test_generate_resume_prioritizes_current_data_science_education(
+    tmp_path: Path,
+    profile_config,
+    resume_profile: ResumeProfile,
+) -> None:
+    job = load_job_fixture("bi_job.json")
+
+    artifact = generate_resume_for_job(
+        job=job,
+        resume_profile=resume_profile,
+        config=profile_config,
+        output_directory=tmp_path,
     )
-    assert expected_data_block in normalized_text
-    assert "programacao: python (pandas, automacoes e etl)" in normalized_text
-    assert "ferramentas: git/github e excel" in normalized_text
-    assert "silo miotto distribuidora ltda" in normalized_text
+
+    normalized_text = normalize_text(load_document_text(artifact.file_path))
+
+    assert normalized_text.index("ciencia de dados para negocios") < normalized_text.index(
+        "administracao"
+    )
+
+
+def test_generate_resume_can_omit_esic_when_budget_is_tight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    profile_config,
+    resume_profile: ResumeProfile,
+) -> None:
+    job = load_job_fixture("bi_job.json")
+    extraction = extract_job_keywords(job, profile_config)
+    content = select_resume_content(
+        job=job,
+        extraction=extraction,
+        resume_profile=resume_profile,
+        config=profile_config,
+    )
+    crowded_content = replace(
+        content,
+        experiences=[
+            SelectedExperience(
+                experience=content.experiences[0].experience,
+                bullet_ids=[
+                    *content.experiences[0].bullet_ids,
+                    "extra_bullet_1",
+                    "extra_bullet_2",
+                ],
+                bullet_texts=[
+                    *content.experiences[0].bullet_texts,
+                    "Projeto adicional validado no perfil para ampliar a aderencia.",
+                    "Atividade adicional validada no perfil para ampliar a aderencia.",
+                ],
+            )
+        ],
+        projects=[
+            *content.projects,
+            SelectedProject(
+                project=content.projects[0].project,
+                bullets=[
+                    *content.projects[0].bullets,
+                    "Bullet adicional aprovado para pressionar o orcamento.",
+                ],
+            ),
+        ],
+        highlights=[
+            *content.highlights,
+            "Destaque adicional aprovado para pressionar o orcamento.",
+        ],
+    )
+    monkeypatch.setattr("radar_vagas.resumes.generator.ESTIMATED_LINES_PER_PAGE", 12)
+
+    artifact = generate_resume(
+        job=job,
+        content=crowded_content,
+        resume_profile=resume_profile,
+        config=profile_config,
+        output_directory=tmp_path,
+    )
+
+    normalized_text = normalize_text(load_document_text(artifact.file_path))
+
+    assert artifact.is_valid is True
+    assert "ciencia de dados para negocios" in normalized_text
+    assert "administracao" not in normalized_text
+    assert "esic" not in normalized_text
+    assert "curso interrompido" not in normalized_text
+
+
+def test_generate_resume_budget_removes_secondary_content_first(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    profile_config,
+    resume_profile: ResumeProfile,
+) -> None:
+    job = load_job_fixture("data_engineering_job.json")
+    extraction = extract_job_keywords(job, profile_config)
+    content = select_resume_content(
+        job=job,
+        extraction=extraction,
+        resume_profile=resume_profile,
+        config=profile_config,
+    )
+    monkeypatch.setattr("radar_vagas.resumes.generator.ESTIMATED_LINES_PER_PAGE", 18)
+
+    artifact = generate_resume(
+        job=job,
+        content=content,
+        resume_profile=resume_profile,
+        config=profile_config,
+        output_directory=tmp_path,
+    )
+
+    normalized_text = normalize_text(load_document_text(artifact.file_path))
+
+    assert "experiencia adicional" not in normalized_text
+    assert "ciencia de dados para negocios" in normalized_text
+    assert "smart data bi" in normalized_text
+
+
+def test_generate_resume_budget_reduces_projects_and_secondary_bullets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    profile_config,
+    resume_profile: ResumeProfile,
+) -> None:
+    job = load_job_fixture("data_engineering_job.json")
+    extraction = extract_job_keywords(job, profile_config)
+    content = select_resume_content(
+        job=job,
+        extraction=extraction,
+        resume_profile=resume_profile,
+        config=profile_config,
+    )
+    expanded_content = replace(
+        content,
+        experiences=[
+            SelectedExperience(
+                experience=content.experiences[0].experience,
+                bullet_ids=[
+                    *content.experiences[0].bullet_ids,
+                    "extra_bullet_1",
+                    "extra_bullet_2",
+                ],
+                bullet_texts=[
+                    *content.experiences[0].bullet_texts,
+                    "Experiencia adicional aprovada para ampliar o teste de orcamento.",
+                    "Mais uma experiencia aprovada para ampliar o teste de orcamento.",
+                ],
+            )
+        ],
+        projects=[
+            SelectedProject(
+                project=project.project,
+                bullets=[
+                    *project.bullets,
+                    "Bullet adicional aprovado para ampliar o teste de orcamento.",
+                ],
+            )
+            for project in content.projects
+        ],
+    )
+    monkeypatch.setattr("radar_vagas.resumes.generator.ESTIMATED_LINES_PER_PAGE", 14)
+
+    artifact = generate_resume(
+        job=job,
+        content=expanded_content,
+        resume_profile=resume_profile,
+        config=profile_config,
+        output_directory=tmp_path,
+    )
+
+    assert len(artifact.selected_project_ids) == 2
+    assert len(artifact.selected_experience_bullet_ids) < len(
+        expanded_content.experiences[0].bullet_ids
+    )
 
 
 def test_validate_resume_detects_corrupted_file(
@@ -217,19 +412,77 @@ def test_validate_resume_detects_corrupted_file(
     file_path = tmp_path / "corrompido.docx"
     file_path.write_bytes(b"nao-e-um-docx-valido")
 
-    artifact = ResumeArtifact(
-        job_fingerprint="abc123",
-        target_title="Analista de Dados",
-        company="Empresa Teste",
-        file_path=file_path,
-        file_name=file_path.name,
-        file_sha256="deadbeef",
-        is_valid=False,
-    )
+    artifact = build_minimal_resume_artifact(file_path)
 
     errors = validate_resume_artifact(artifact, resume_profile)
 
     assert "resume file cannot be opened by python-docx" in errors
+
+
+def test_validate_resume_requires_interrupted_marker_only_when_esic_or_administracao_appear(
+    tmp_path: Path,
+    resume_profile: ResumeProfile,
+) -> None:
+    file_path = tmp_path / "esic_sem_interrupcao.docx"
+    document = Document()
+    for section in [
+        "Resumo Profissional",
+        "Competencias Tecnicas",
+        "Experiencia em Dados",
+        "Projetos Selecionados",
+        "Formacao e Destaques",
+    ]:
+        document.add_paragraph(section)
+    document.add_paragraph("Administracao - ESIC Business")
+    document.save(file_path)
+
+    errors = validate_resume_artifact(build_minimal_resume_artifact(file_path), resume_profile)
+
+    assert "ESIC or Administracao must remain marked as Curso interrompido" in errors
+
+
+def test_validate_resume_accepts_document_without_esic(
+    tmp_path: Path,
+    resume_profile: ResumeProfile,
+) -> None:
+    file_path = tmp_path / "sem_esic.docx"
+    document = Document()
+    for section in [
+        "Resumo Profissional",
+        "Competencias Tecnicas",
+        "Experiencia em Dados",
+        "Projetos Selecionados",
+        "Formacao e Destaques",
+    ]:
+        document.add_paragraph(section)
+    document.add_paragraph("Ciencia de Dados para Negocios - FAE Business School")
+    document.save(file_path)
+
+    errors = validate_resume_artifact(build_minimal_resume_artifact(file_path), resume_profile)
+
+    assert "ESIC or Administracao must remain marked as Curso interrompido" not in errors
+
+
+def test_validate_resume_detects_forbidden_claim(
+    tmp_path: Path,
+    resume_profile: ResumeProfile,
+) -> None:
+    file_path = tmp_path / "claim_proibido.docx"
+    document = Document()
+    for section in [
+        "Resumo Profissional",
+        "Competencias Tecnicas",
+        "Experiencia em Dados",
+        "Projetos Selecionados",
+        "Formacao e Destaques",
+    ]:
+        document.add_paragraph(section)
+    document.add_paragraph("Formado em Administracao com experiencia analitica.")
+    document.save(file_path)
+
+    errors = validate_resume_artifact(build_minimal_resume_artifact(file_path), resume_profile)
+
+    assert "forbidden claim detected: formado em administracao" in errors
 
 
 def test_invalid_candidate_profile_raises_error(tmp_path: Path) -> None:
