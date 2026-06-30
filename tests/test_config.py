@@ -39,6 +39,7 @@ def test_load_runtime_settings_with_explicit_overrides() -> None:
     settings = load_runtime_settings(
         _env_file=None,
         candidate_profile_path="config/custom_profile.yaml",
+        resume_output_directory="tmp/resumes",
         log_level=LogLevel.DEBUG,
         environment="test",
         candidate_email="renan@example.com",
@@ -49,6 +50,7 @@ def test_load_runtime_settings_with_explicit_overrides() -> None:
     assert settings.environment == "test"
     assert settings.candidate_email == "renan@example.com"
     assert settings.candidate_profile_path == Path("config/custom_profile.yaml")
+    assert settings.resume_output_directory == Path("tmp/resumes")
 
 
 def test_load_profile_config_rejects_minimum_score_out_of_range(tmp_path: Path) -> None:

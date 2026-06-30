@@ -35,6 +35,30 @@ python -m radar_vagas --generate-resume tests/fixtures/jobs/bi_job.json
 python -m radar_vagas --test-discord
 ```
 
+## GitHub Actions
+
+O workflow principal fica em `.github/workflows/radar.yml` e executa o radar manualmente ou de segunda a sexta, as `08:00` e `14:00`, com timezone `America/Sao_Paulo`.
+
+### Secrets obrigatorios
+
+Configure estes GitHub Secrets no repositorio:
+
+- `DISCORD_WEBHOOK_URL`
+- `JOOBLE_API_KEY`
+- `CANDIDATE_EMAIL`
+- `CANDIDATE_PHONE`
+- `CANDIDATE_PROFILE_YAML`
+
+O segredo `CANDIDATE_PROFILE_YAML` deve conter o conteudo completo do seu `config/candidate_profile.local.yaml`. O workflow recria esse arquivo apenas no runner, usa um diretorio temporario para os DOCX e remove os arquivos sensiveis ao final.
+
+### Primeira validacao manual
+
+1. Abra `Actions` no GitHub e execute `Radar de Vagas` com `workflow_dispatch`.
+2. Confirme que as etapas `Lint`, `Test` e `Run radar` concluem com sucesso.
+3. Se quiser inspecionar os DOCX da execucao manual, marque `upload_resume_artifact=true`.
+4. Verifique se apenas `data/seen_jobs.json` foi commitado automaticamente quando houver alteracao.
+5. Rode uma segunda execucao manual e confirme que vagas ja notificadas nao geram novo envio nem novo curriculo.
+
 ## Fluxo da CLI
 
 - `python -m radar_vagas` executa o pipeline completo com os termos e localizacoes definidos em `config/profile.yaml`.
@@ -45,6 +69,7 @@ python -m radar_vagas --test-discord
 - `--generate-resume CAMINHO_JSON` gera um DOCX para uma vaga normalizada em JSON.
 - `--test-discord` envia uma mensagem de teste com um DOCX ficticio.
 - `--verbose` ativa logs detalhados.
+- Na automacao do GitHub Actions, o runner usa `RESUME_OUTPUT_DIRECTORY` temporario e limpa os DOCX ao final da execucao.
 
 ## Estrutura inicial
 
@@ -62,6 +87,7 @@ Context/              Documentos de especificacao originais
 - Nao versione `.env`.
 - Nao versione `config/candidate_profile.local.yaml`.
 - Nao versione curriculos gerados em `output/resumes/`.
+- Nunca cole o conteudo de `CANDIDATE_PROFILE_YAML` em arquivos versionados.
 - Nao adicione credenciais reais em testes, codigo ou documentacao.
 
 ## Especificacao

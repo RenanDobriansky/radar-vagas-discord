@@ -1,0 +1,138 @@
+name: Radar de Vagas
+
+"on":
+  workflow_dispatch:
+    inputs:
+      upload_resume_artifact:
+        description: "Publica os curriculos gerados como artifact temporario"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "0 8 * * 1-5"
+      timezone: "America/Sao_Paulo"
+    - cron: "0 14 * * 1-5"
+      timezone: "America/Sao_Paulo"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: radar-vagas-${{ github.ref }}
+  queue: max
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      JOOBLE_API_KEY: ${{ secrets.JOOBLE_API_KEY }}
+      CANDIDATE_EMAIL: ${{ secrets.CANDIDATE_EMAIL }}
+      CANDIDATE_PHONE: ${{ secrets.CANDIDATE_PHONE }}
+      CANDIDATE_PROFILE_YAML: ${{ secrets.CANDIDATE_PROFILE_YAML }}
+      CANDIDATE_PROFILE_PATH: config/candidate_profile.local.yaml
+      RESUME_OUTPUT_DIRECTORY: ${{ runner.temp }}/radar-resumes
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          required_vars=(
+            DISCORD_WEBHOOK_URL
+            JOOBLE_API_KEY
+            CANDIDATE_EMAIL
+            CANDIDATE_PHONE
+            CANDIDATE_PROFILE_YAML
+          )
+          for var_name in "${required_vars[@]}"; do
+            if [[ -z "${!var_name:-}" ]]; then
+              echo "::error title=Missing secret::The required secret ${var_name} is not configured."
+              exit 1
+            fi
+          done
+
+      - name: Materialize candidate profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p config "${RESUME_OUTPUT_DIRECTORY}"
+          cat <<'EOF' > "${CANDIDATE_PROFILE_PATH}"
+          ${CANDIDATE_PROFILE_YAML}
+          EOF
+          chmod 600 "${CANDIDATE_PROFILE_PATH}"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        run: pytest
+
+      - name: Run radar
+        shell: bash
+        run: |
+          set -euo pipefail
+          extra_args=()
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.upload_resume_artifact }}" == "true" ]]; then
+            extra_args+=(--save-resumes)
+          fi
+          python -m radar_vagas "${extra_args[@]}"
+
+      - name: Upload generated resumes
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_resume_artifact == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: radar-resumes-${{ github.run_id }}
+          path: ${{ runner.temp }}/radar-resumes/*.docx
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Commit updated job history
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f data/seen_jobs.json ]]; then
+            echo "No history file to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git add data/seen_jobs.json
+
+          if git diff --cached --quiet; then
+            echo "No history changes detected."
+            exit 0
+          fi
+
+          git commit -m "chore: update seen jobs [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Cleanup sensitive files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "${CANDIDATE_PROFILE_PATH}"
+          rm -rf "${RESUME_OUTPUT_DIRECTORY}"

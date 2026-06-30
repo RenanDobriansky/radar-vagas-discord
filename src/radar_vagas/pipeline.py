@@ -180,6 +180,7 @@ def run_pipeline(
             resume_profile = resume_profile_loader(runtime_settings)
             output_directory = _resolve_output_directory(
                 config=effective_config,
+                runtime_settings=runtime_settings,
                 options=options,
                 temporary_directory=temporary_directory,
             )
@@ -487,11 +488,14 @@ def _build_temporary_directory(options: PipelineOptions) -> Path | None:
 def _resolve_output_directory(
     *,
     config: ProfileConfig,
+    runtime_settings: RuntimeSettings,
     options: PipelineOptions,
     temporary_directory: Path | None,
 ) -> Path:
     if temporary_directory is not None:
         return temporary_directory
+    if runtime_settings.resume_output_directory is not None:
+        return runtime_settings.resume_output_directory
     del options
     return Path(config.resume.output_directory)
 

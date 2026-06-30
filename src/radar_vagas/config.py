@@ -219,6 +219,7 @@ class RuntimeSettings(BaseSettings):
     candidate_email: str | None = None
     candidate_phone: str | None = None
     candidate_profile_path: Path = Path("config/candidate_profile.local.yaml")
+    resume_output_directory: Path | None = None
     log_level: LogLevel = LogLevel.INFO
     environment: EnvironmentName = EnvironmentName.DEVELOPMENT
 
@@ -236,9 +237,11 @@ class RuntimeSettings(BaseSettings):
         cleaned = str(value).strip()
         return cleaned or None
 
-    @field_validator("candidate_profile_path", mode="before")
+    @field_validator("candidate_profile_path", "resume_output_directory", mode="before")
     @classmethod
-    def normalize_profile_path(cls, value: Any) -> Path:
+    def normalize_optional_path(cls, value: Any) -> Path | None:
+        if value is None:
+            return None
         if isinstance(value, Path):
             return value
         return Path(str(value).strip())
