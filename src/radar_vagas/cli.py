@@ -9,6 +9,7 @@ from pathlib import Path
 from radar_vagas import __version__
 from radar_vagas.config import load_profile_config, load_runtime_settings
 from radar_vagas.models import JobPosting
+from radar_vagas.notifications.discord import DiscordNotificationError, send_test_message
 from radar_vagas.providers.base import ProviderError
 from radar_vagas.providers.jooble import JoobleProvider
 from radar_vagas.providers.remotive import RemotiveProvider
@@ -69,6 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="No modo dry-run, gera curriculos de exemplo para inspecao.",
     )
+    parser.add_argument(
+        "--test-discord",
+        action="store_true",
+        help="Envia uma mensagem de teste para o webhook do Discord com um DOCX ficticio.",
+    )
     return parser
 
 
@@ -76,6 +82,27 @@ def main(argv: list[str] | None = None) -> int:
     """Executa a CLI placeholder sem acionar integracoes reais."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.test_discord:
+        settings = load_runtime_settings()
+        try:
+            receipt = send_test_message(settings=settings)
+        except DiscordNotificationError as exc:
+            parser.exit(1, f"Erro ao testar Discord: {exc}\n")
+
+        print(
+            json.dumps(
+                {
+                    "message_id": receipt.message_id,
+                    "status_code": receipt.status_code,
+                    "attachment_name": receipt.attachment_name,
+                    "attempts": receipt.attempts,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
 
     if args.generate_resume:
         settings = load_runtime_settings()
