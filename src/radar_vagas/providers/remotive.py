@@ -16,7 +16,12 @@ from tenacity import (
 )
 
 from radar_vagas.models import JobPosting, WorkMode
-from radar_vagas.providers.base import JobProvider, ProviderRequestError, ProviderResponseError
+from radar_vagas.providers.base import (
+    JobProvider,
+    ProviderCapabilities,
+    ProviderRequestError,
+    ProviderResponseError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +56,11 @@ class RemotiveProvider(JobProvider):
     """
 
     provider_name = "remotive"
+    capabilities = ProviderCapabilities(
+        supports_location=False,
+        supports_pagination=False,
+        supports_category=True,
+    )
 
     def __init__(
         self,

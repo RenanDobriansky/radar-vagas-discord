@@ -19,7 +19,7 @@ from radar_vagas.config import (
 from radar_vagas.deduplication import deduplicate_jobs
 from radar_vagas.models import EvaluatedJob, JobPosting, JobStatus, Priority, ResumeArtifact
 from radar_vagas.notifications.discord import DiscordNotificationError, send_job_notification
-from radar_vagas.providers.base import JobProvider, ProviderError
+from radar_vagas.providers.base import JobProvider, ProviderCapabilities, ProviderError
 from radar_vagas.providers.jooble import JoobleProvider
 from radar_vagas.providers.remotive import RemotiveProvider
 from radar_vagas.resumes.content_selector import select_resume_content
@@ -28,6 +28,7 @@ from radar_vagas.resumes.keyword_extractor import extract_job_keywords
 from radar_vagas.resumes.profile import ResumeProfile, load_resume_profile
 from radar_vagas.scoring import evaluate_job
 from radar_vagas.storage import DEFAULT_HISTORY_PATH, JobHistoryStore, StoredJobRecord
+from radar_vagas.text_utils import normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,15 @@ class ProviderFailure:
     error: str
 
 
+@dataclass(slots=True, frozen=True)
+class ProviderQuery:
+    """Representa uma consulta efetiva disparada para um provider."""
+
+    term: str
+    location: str | None = None
+    category: str | None = None
+
+
 @dataclass(slots=True)
 class PipelineSummary:
     """Resumo estruturado da execucao do pipeline."""
@@ -73,6 +83,7 @@ class PipelineSummary:
     deduplicated_jobs: int = 0
     execution_duplicates: int = 0
     skipped_existing_jobs: int = 0
+    prefiltered_jobs: int = 0
     evaluated_jobs: int = 0
     rejected_jobs: int = 0
     eligible_jobs: int = 0
@@ -136,6 +147,9 @@ def run_pipeline(
 
         unseen_jobs: list[JobPosting] = []
         for job in deduplication_result.unique_jobs:
+            if not _passes_title_prefilter(job, effective_config):
+                summary.prefiltered_jobs += 1
+                continue
             if history.find_match(job) is not None:
                 summary.skipped_existing_jobs += 1
                 continue
@@ -172,7 +186,9 @@ def run_pipeline(
         evaluated_jobs.sort(key=lambda item: _evaluated_job_sort_key(item, now))
         ordered_candidates = pending_jobs + evaluated_jobs
         summary.eligible_jobs = len(ordered_candidates)
-        selected_jobs = ordered_candidates[: effective_config.search.maximum_jobs_per_run]
+        selected_jobs = ordered_candidates[
+            : effective_config.search.maximum_notifications_per_run
+        ]
         summary.selected_jobs = len(selected_jobs)
 
         if selected_jobs:
@@ -223,7 +239,7 @@ def _fetch_jobs(
     all_jobs: list[JobPosting] = []
     terms = _resolve_terms(config, options)
     locations = _resolve_locations(config, options)
-    results_per_page = options.results_per_page or config.search.maximum_jobs_per_run
+    results_per_page = options.results_per_page or config.search.provider_results_per_query
 
     for provider_name in selected_providers:
         factory = factories[provider_name]
@@ -239,30 +255,35 @@ def _fetch_jobs(
             )
             continue
 
-        for term in terms:
-            for location in locations:
-                summary.queries_executed += 1
-                try:
-                    jobs = _fetch_provider_jobs(
-                        provider=provider,
-                        provider_name=provider_name,
-                        term=term,
-                        location=location,
-                        results_per_page=results_per_page,
-                        category=options.category,
-                    )
-                except ProviderError as exc:
-                    _register_provider_failure(
-                        summary=summary,
-                        provider=provider_name,
-                        term=term,
-                        location=location,
-                        error=str(exc),
-                    )
-                    continue
+        queries = _build_provider_queries(
+            provider=provider,
+            terms=terms,
+            locations=locations,
+            category=options.category,
+        )
+        for query in queries:
+            summary.queries_executed += 1
+            try:
+                jobs = _fetch_provider_jobs(
+                    provider=provider,
+                    provider_name=provider_name,
+                    term=query.term,
+                    location=query.location,
+                    results_per_page=results_per_page,
+                    category=query.category,
+                )
+            except ProviderError as exc:
+                _register_provider_failure(
+                    summary=summary,
+                    provider=provider_name,
+                    term=query.term,
+                    location=query.location,
+                    error=str(exc),
+                )
+                continue
 
-                all_jobs.extend(jobs)
-                summary.fetched_jobs += len(jobs)
+            all_jobs.extend(jobs)
+            summary.fetched_jobs += len(jobs)
 
     return all_jobs
 
@@ -272,14 +293,16 @@ def _fetch_provider_jobs(
     provider: JobProvider,
     provider_name: str,
     term: str,
-    location: str,
+    location: str | None,
     results_per_page: int,
     category: str | None,
 ) -> list[JobPosting]:
-    if provider_name == "remotive" and isinstance(provider, RemotiveProvider):
+    capabilities = _provider_capabilities(provider)
+    resolved_location = location or ""
+    if capabilities.supports_category:
         return provider.fetch_jobs(
             term=term,
-            location=location,
+            location=resolved_location,
             page=1,
             results_per_page=results_per_page,
             category=category,
@@ -287,7 +310,7 @@ def _fetch_provider_jobs(
 
     return provider.fetch_jobs(
         term=term,
-        location=location,
+        location=resolved_location,
         page=1,
         results_per_page=results_per_page,
     )
@@ -439,10 +462,15 @@ def _apply_overrides(config: ProfileConfig, options: PipelineOptions) -> Profile
         if options.minimum_score is not None
         else config.search.minimum_score
     )
-    payload["search"]["maximum_jobs_per_run"] = (
+    payload["search"]["maximum_notifications_per_run"] = (
         options.max_jobs
         if options.max_jobs is not None
-        else config.search.maximum_jobs_per_run
+        else config.search.maximum_notifications_per_run
+    )
+    payload["search"]["provider_results_per_query"] = (
+        options.results_per_page
+        if options.results_per_page is not None
+        else config.search.provider_results_per_query
     )
     payload["search"]["terms"] = _resolve_terms(config, options)
     payload["search"]["locations"] = _resolve_locations(config, options)
@@ -522,6 +550,78 @@ def _load_pending_jobs(
         _record_to_evaluated_job(record)
         for record in history.get_processable_records(reference_time=reference_time)
     ]
+
+
+def _build_provider_queries(
+    *,
+    provider: JobProvider,
+    terms: list[str],
+    locations: list[str],
+    category: str | None,
+) -> list[ProviderQuery]:
+    capabilities = _provider_capabilities(provider)
+    query_locations = locations if capabilities.supports_location else [None]
+    query_category = category if capabilities.supports_category else None
+
+    queries: list[ProviderQuery] = []
+    for term in terms:
+        for location in query_locations:
+            queries.append(
+                ProviderQuery(
+                    term=term,
+                    location=location,
+                    category=query_category,
+                )
+            )
+    return queries
+
+
+def _provider_capabilities(provider: JobProvider) -> ProviderCapabilities:
+    return getattr(provider, "capabilities", ProviderCapabilities())
+
+
+def _passes_title_prefilter(job: JobPosting, config: ProfileConfig) -> bool:
+    normalized_title = normalize_text(job.title)
+    if not normalized_title:
+        return False
+
+    normalized_terms = [normalize_text(term) for term in config.search.terms]
+    title_tokens = set(normalized_title.split())
+    for term in normalized_terms:
+        term_tokens = set(term.split())
+        overlap = len(title_tokens & term_tokens)
+        if overlap >= 2 or term in normalized_title or normalized_title in term:
+            return True
+
+    related_keywords = {
+        normalize_text(keyword)
+        for keyword in config.scoring.related_title_keywords
+        if normalize_text(keyword)
+    }
+    if any(keyword in normalized_title for keyword in related_keywords):
+        return True
+
+    indirect_title_keywords = {
+        "analytics",
+        "governanca",
+        "indicadores",
+        "performance",
+        "reporting",
+    }
+    title_role_markers = {
+        "analista",
+        "analyst",
+        "developer",
+        "desenvolvedor",
+        "engineer",
+        "engenheiro",
+        "especialista",
+        "specialist",
+    }
+    if any(keyword in normalized_title for keyword in indirect_title_keywords):
+        return any(marker in normalized_title for marker in title_role_markers)
+
+    return False
 
 
 def _record_to_evaluated_job(record: StoredJobRecord) -> EvaluatedJob:

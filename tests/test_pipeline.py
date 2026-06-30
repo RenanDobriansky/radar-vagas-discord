@@ -13,7 +13,7 @@ from radar_vagas.config import FileConfigurationError, RuntimeSettings, load_pro
 from radar_vagas.models import JobPosting, JobStatus, ResumeArtifact, WorkMode
 from radar_vagas.notifications.discord import DiscordNotificationError
 from radar_vagas.pipeline import PipelineOptions, PipelineSummary, run_pipeline
-from radar_vagas.providers.base import ProviderRequestError
+from radar_vagas.providers.base import ProviderCapabilities, ProviderRequestError
 from radar_vagas.storage import JobHistoryStore
 from radar_vagas.text_utils import make_job_fingerprint
 
@@ -55,6 +55,38 @@ class FailingProvider:
         raise self.error
 
 
+class RecordingProvider:
+    def __init__(
+        self,
+        jobs: list[JobPosting],
+        *,
+        capabilities: ProviderCapabilities | None = None,
+    ) -> None:
+        self.jobs = jobs
+        self.capabilities = capabilities or ProviderCapabilities()
+        self.calls: list[dict[str, object]] = []
+
+    def fetch_jobs(
+        self,
+        *,
+        term: str,
+        location: str,
+        page: int = 1,
+        results_per_page: int = 20,
+        category: str | None = None,
+    ) -> list[JobPosting]:
+        self.calls.append(
+            {
+                "term": term,
+                "location": location,
+                "page": page,
+                "results_per_page": results_per_page,
+                "category": category,
+            }
+        )
+        return list(self.jobs)
+
+
 def build_settings() -> RuntimeSettings:
     return RuntimeSettings.model_validate(
         {
@@ -69,6 +101,26 @@ def build_settings() -> RuntimeSettings:
 
 def build_profile_config():
     return load_profile_config()
+
+
+def build_custom_profile_config(
+    *,
+    terms: list[str] | None = None,
+    locations: list[str] | None = None,
+    provider_results_per_query: int | None = None,
+    maximum_notifications_per_run: int | None = None,
+):
+    config = build_profile_config()
+    payload = config.model_dump(mode="python")
+    if terms is not None:
+        payload["search"]["terms"] = terms
+    if locations is not None:
+        payload["search"]["locations"] = locations
+    if provider_results_per_query is not None:
+        payload["search"]["provider_results_per_query"] = provider_results_per_query
+    if maximum_notifications_per_run is not None:
+        payload["search"]["maximum_notifications_per_run"] = maximum_notifications_per_run
+    return type(config).model_validate(payload)
 
 
 def build_job(
@@ -213,6 +265,167 @@ def test_pipeline_continues_when_one_provider_fails(tmp_path: Path) -> None:
     assert summary.notifications_sent == 1
     assert sent_files == ["resume_job-1.docx"]
     assert statuses["job-1"] is JobStatus.NOTIFIED
+
+
+def test_pipeline_queries_remotive_once_per_term_independent_of_locations(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    profile_config = build_custom_profile_config(
+        terms=["BI Analyst", "Data Analyst"],
+        locations=["Curitiba", "Pinhais", "Colombo"],
+    )
+    provider = RecordingProvider(
+        [],
+        capabilities=ProviderCapabilities(
+            supports_location=False,
+            supports_pagination=False,
+            supports_category=True,
+        ),
+    )
+
+    summary = run_pipeline(
+        options=build_options(
+            provider_names=["remotive"],
+            term=None,
+            location=None,
+            max_jobs=None,
+        ),
+        settings=build_settings(),
+        profile_config=profile_config,
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: provider},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name([]),
+    )
+
+    assert summary.queries_executed == 2
+    assert len(provider.calls) == 2
+    assert {call["term"] for call in provider.calls} == {"BI Analyst", "Data Analyst"}
+    assert {call["location"] for call in provider.calls} == {""}
+
+
+def test_pipeline_queries_jooble_for_each_term_and_location_combination(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    profile_config = build_custom_profile_config(
+        terms=["BI Analyst", "Data Analyst"],
+        locations=["Curitiba", "Pinhais", "Colombo"],
+    )
+    provider = RecordingProvider(
+        [],
+        capabilities=ProviderCapabilities(
+            supports_location=True,
+            supports_pagination=True,
+            supports_category=False,
+        ),
+    )
+
+    summary = run_pipeline(
+        options=build_options(provider_names=["jooble"], term=None, location=None),
+        settings=build_settings(),
+        profile_config=profile_config,
+        history_path=history_path,
+        provider_factories={"jooble": lambda _settings: provider},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name([]),
+    )
+
+    assert summary.queries_executed == 6
+    assert len(provider.calls) == 6
+    assert {
+        (call["term"], call["location"])
+        for call in provider.calls
+    } == {
+        ("BI Analyst", "Curitiba"),
+        ("BI Analyst", "Pinhais"),
+        ("BI Analyst", "Colombo"),
+        ("Data Analyst", "Curitiba"),
+        ("Data Analyst", "Pinhais"),
+        ("Data Analyst", "Colombo"),
+    }
+
+
+def test_pipeline_prefilter_discards_clearly_irrelevant_titles_without_persisting(
+    tmp_path: Path,
+) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    job = build_job(
+        provider_job_id="job-1",
+        title="Editor de Video",
+        description="Captacao, edicao de video e motion design.",
+    )
+
+    summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([job])},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name([]),
+    )
+
+    assert summary.prefiltered_jobs == 1
+    assert summary.evaluated_jobs == 0
+    assert summary.selected_jobs == 0
+    assert JobHistoryStore(history_path).jobs == {}
+
+
+def test_pipeline_prefilter_accepts_related_titles(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    job = build_job(provider_job_id="job-1", title="Analista de Performance")
+
+    summary = run_pipeline(
+        options=build_options(provider_names=["remotive"]),
+        settings=build_settings(),
+        profile_config=build_profile_config(),
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: StaticProvider([job])},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name([]),
+    )
+
+    assert summary.prefiltered_jobs == 0
+    assert summary.evaluated_jobs == 1
+    assert load_status_by_provider_job_id(history_path)["job-1"] is JobStatus.NOTIFIED
+
+
+def test_pipeline_separates_results_per_query_from_maximum_notifications(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    profile_config = build_custom_profile_config(
+        terms=["Analista de BI"],
+        locations=["Curitiba"],
+        provider_results_per_query=7,
+        maximum_notifications_per_run=1,
+    )
+    provider = RecordingProvider(
+        [
+            build_job(provider_job_id="job-1", company="Empresa A"),
+            build_job(provider_job_id="job-2", company="Empresa B"),
+        ],
+        capabilities=ProviderCapabilities(
+            supports_location=False,
+            supports_pagination=False,
+            supports_category=True,
+        ),
+    )
+
+    summary = run_pipeline(
+        options=build_options(
+            provider_names=["remotive"],
+            term=None,
+            location=None,
+            max_jobs=None,
+        ),
+        settings=build_settings(),
+        profile_config=profile_config,
+        history_path=history_path,
+        provider_factories={"remotive": lambda _settings: provider},
+        resume_generator=build_resume_generator(),
+        notification_sender=capture_file_name([]),
+    )
+
+    assert provider.calls[0]["results_per_page"] == 7
+    assert summary.selected_jobs == 1
+    assert summary.notifications_sent == 1
 
 
 def test_pipeline_raises_when_resume_profile_cannot_be_loaded(tmp_path: Path) -> None:
@@ -556,7 +769,9 @@ def test_pipeline_repeated_execution_skips_notified_history_duplicates(tmp_path:
     assert sent_files == ["resume_job-1.docx"]
 
 
-def test_pipeline_repeated_execution_skips_rejected_history_duplicates(tmp_path: Path) -> None:
+def test_pipeline_repeated_execution_discards_prefiltered_duplicates_without_persisting(
+    tmp_path: Path,
+) -> None:
     history_path = tmp_path / "seen_jobs.json"
     job = build_job(
         provider_job_id="job-1",
@@ -583,9 +798,10 @@ def test_pipeline_repeated_execution_skips_rejected_history_duplicates(tmp_path:
         notification_sender=capture_file_name([]),
     )
 
-    assert first_summary.rejected_jobs == 1
-    assert second_summary.skipped_existing_jobs == 1
-    assert load_status_by_provider_job_id(history_path)["job-1"] is JobStatus.REJECTED
+    assert first_summary.prefiltered_jobs == 1
+    assert second_summary.prefiltered_jobs == 1
+    assert second_summary.skipped_existing_jobs == 0
+    assert JobHistoryStore(history_path).jobs == {}
 
 
 def test_pipeline_dry_run_does_not_persist_history_or_send_notifications(tmp_path: Path) -> None:

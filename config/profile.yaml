@@ -22,7 +22,8 @@ resume:
 
 search:
   minimum_score: 70
-  maximum_jobs_per_run: 10
+  maximum_notifications_per_run: 10
+  provider_results_per_query: 10
   maximum_age_days: 14
   include_internships: false
   terms:

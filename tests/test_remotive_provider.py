@@ -146,3 +146,11 @@ def test_remotive_provider_supports_local_pagination_slice() -> None:
 
     assert route.calls[0].request.url.params["limit"] == "4"
     assert [job.provider_job_id for job in jobs] == ["3", "4"]
+
+
+def test_remotive_provider_declares_capabilities() -> None:
+    provider = build_provider()
+
+    assert provider.capabilities.supports_location is False
+    assert provider.capabilities.supports_pagination is False
+    assert provider.capabilities.supports_category is True

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from radar_vagas.models import CandidateProfile
@@ -86,11 +86,32 @@ class SearchConfig(BaseModel):
     """Configuracoes de busca e corte minimo."""
 
     minimum_score: int = Field(ge=0, le=100)
-    maximum_jobs_per_run: int = Field(ge=1)
+    maximum_notifications_per_run: int = Field(ge=1)
+    provider_results_per_query: int = Field(ge=1)
     maximum_age_days: int = Field(ge=1)
     include_internships: bool = False
     terms: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_search_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        payload = dict(data)
+        legacy_max_jobs = payload.get("maximum_jobs_per_run")
+        maximum_notifications = payload.get("maximum_notifications_per_run")
+
+        if maximum_notifications is None and legacy_max_jobs is not None:
+            payload["maximum_notifications_per_run"] = legacy_max_jobs
+
+        if payload.get("provider_results_per_query") is None:
+            payload["provider_results_per_query"] = (
+                payload.get("maximum_notifications_per_run") or legacy_max_jobs or 10
+            )
+
+        return payload
 
     @field_validator("terms", "locations")
     @classmethod
@@ -99,6 +120,11 @@ class SearchConfig(BaseModel):
         if not cleaned:
             raise ValueError(f"{info.field_name} must contain at least one non-empty entry")
         return cleaned
+
+    @property
+    def maximum_jobs_per_run(self) -> int:
+        """Compatibilidade com o nome legado usado nas etapas anteriores."""
+        return self.maximum_notifications_per_run
 
 
 class SkillProfileConfig(BaseModel):

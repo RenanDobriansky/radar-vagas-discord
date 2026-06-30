@@ -150,3 +150,11 @@ def test_jooble_provider_skips_incomplete_payload_items() -> None:
 def test_jooble_provider_requires_api_key() -> None:
     with pytest.raises(ProviderAuthenticationError, match="JOOBLE_API_KEY"):
         build_provider(api_key="  ")
+
+
+def test_jooble_provider_declares_capabilities() -> None:
+    provider = build_provider()
+
+    assert provider.capabilities.supports_location is True
+    assert provider.capabilities.supports_pagination is True
+    assert provider.capabilities.supports_category is False

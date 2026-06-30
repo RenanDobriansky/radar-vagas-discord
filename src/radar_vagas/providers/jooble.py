@@ -19,6 +19,7 @@ from radar_vagas.models import JobPosting
 from radar_vagas.providers.base import (
     JobProvider,
     ProviderAuthenticationError,
+    ProviderCapabilities,
     ProviderRequestError,
     ProviderResponseError,
 )
@@ -55,6 +56,11 @@ class JoobleProvider(JobProvider):
     """
 
     provider_name = "jooble"
+    capabilities = ProviderCapabilities(
+        supports_location=True,
+        supports_pagination=True,
+        supports_category=False,
+    )
 
     def __init__(
         self,

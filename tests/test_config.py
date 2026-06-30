@@ -24,6 +24,8 @@ def test_load_profile_config_from_repository_file() -> None:
 
     assert isinstance(config, ProfileConfig)
     assert config.search.minimum_score == 70
+    assert config.search.maximum_notifications_per_run == 10
+    assert config.search.provider_results_per_query == 10
     assert "Analista de Dados" in config.search.terms
 
 
