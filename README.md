@@ -1,21 +1,65 @@
 # Radar de Vagas
 
-Projeto Python para buscar vagas, normalizar resultados, deduplicar, aplicar scoring deterministico, gerar curriculos ATS em DOCX e enviar oportunidades elegiveis para o Discord com um anexo por vaga.
+Radar de Vagas e um projeto Python que automatiza a busca de oportunidades aderentes a um perfil profissional, aplica filtros e scoring deterministico, gera curriculos ATS em DOCX e envia vagas priorizadas para o Discord.
 
-## Status atual
+## Problema
 
-O projeto ja esta funcional nas frentes principais:
+Buscar vagas manualmente em varias fontes costuma gerar:
 
-- providers `Jooble` e `Remotive`
-- deduplicacao por `provider_job_id`, URL normalizada e fingerprint
-- filtros eliminatorios e scoring de `0` a `100`
-- geracao deterministica de curriculos ATS em DOCX
-- validacao do curriculo antes do envio
-- notificacao no Discord com webhook e anexo
-- persistencia em `data/seen_jobs.json`
-- pipeline completo via CLI e GitHub Actions
+- muito ruido e baixa aderencia;
+- repeticao de vagas entre plataformas;
+- perda de tempo com oportunidades fora do escopo;
+- dificuldade para adaptar curriculos de forma consistente;
+- falta de rastreabilidade sobre o que ja foi visto, rejeitado ou enviado.
 
-Na ultima validacao local, `ruff check .` passou e `pytest --cov=src/radar_vagas --cov-report=term-missing` retornou `115 passed` com cobertura total de `90%`.
+## Solucao
+
+O projeto organiza esse fluxo ponta a ponta:
+
+- consulta providers de vagas;
+- normaliza e deduplica resultados;
+- aplica pre-filtro, regras eliminatorias e score de `0` a `100`;
+- seleciona apenas conteudo verdadeiro do perfil-base;
+- gera curriculos lineares e compativeis com ATS;
+- envia uma vaga por mensagem no Discord com anexo;
+- persiste o estado operacional com retries e auditoria.
+
+## Arquitetura
+
+```mermaid
+flowchart LR
+    A[Jooble / Remotive] --> B[Normalizacao]
+    B --> C[Pre-filtro]
+    C --> D[Deduplicacao]
+    D --> E[Scoring]
+    E --> F[Fila e Estado]
+    F --> G[Selecao de Conteudo]
+    G --> H[Curriculo ATS em DOCX]
+    H --> I[Validacao]
+    I --> J[Discord]
+    J --> K[Historico Operacional]
+```
+
+Documentacao detalhada:
+
+- [Arquitetura](docs/architecture.md)
+- [Execucao e workflows](docs/execution.md)
+- [Operacoes e estado](docs/operations.md)
+- [Seguranca e privacidade](docs/security.md)
+- [Roadmap](docs/roadmap.md)
+
+## Maquina de Estados
+
+O ciclo de vida das vagas segue estados explicitos:
+
+```text
+QUEUED -> RESUME_GENERATED -> NOTIFIED
+RETRY_PENDING -> QUEUED
+RETRY_PENDING -> DEAD_LETTER
+REJECTED e NOTIFIED sao estados finais
+```
+
+Isso evita perder vagas elegiveis fora do limite por execucao e permite retry de falhas transitorias.
 
 ## Stack
 
@@ -26,22 +70,64 @@ Na ultima validacao local, `ruff check .` passou e `pytest --cov=src/radar_vagas
 - `tenacity`
 - `python-docx`
 - `pytest`, `pytest-cov`, `respx`, `ruff`
+- GitHub Actions
 
-## Fluxo do radar
+## Confiabilidade
 
-```text
-providers -> normalizacao -> deduplicacao -> historico -> filtros -> scoring
--> extracao de palavras-chave -> selecao de conteudo verdadeiro
--> geracao de curriculo DOCX -> validacao -> Discord -> atualizacao do historico
+- deduplicacao por `provider_job_id`, hash da URL normalizada e `fingerprint`;
+- escrita atomica do historico;
+- migracao de schema com backup;
+- retries com backoff deterministico;
+- dead letter para falhas persistentes;
+- isolamento de falhas por provider;
+- `dry-run` sem persistencia nem notificacao;
+- branch dedicada `radar-state` para estado operacional.
+
+## Seguranca
+
+- secrets fora do repositorio;
+- perfil profissional real mantido apenas em `config/candidate_profile.local.yaml`;
+- workflow de CI separado do workflow produtivo;
+- secrets injetados somente nos passos necessarios do workflow produtivo;
+- artifacts apenas sanitizados;
+- logs sem webhook, chave, email ou telefone;
+- historico `v3` com minimizacao de dados.
+
+Mais detalhes em [docs/security.md](docs/security.md).
+
+## Testes
+
+Validacao recomendada:
+
+```powershell
+ruff check .
+pytest
+pytest --cov=src/radar_vagas --cov-report=term-missing
 ```
 
-## Requisitos
+## Demonstracao
 
-- Windows ou Linux
-- Python 3.12+
-- Git
+Fluxo principal:
 
-## Setup local no Windows
+```powershell
+python -m radar_vagas --dry-run --save-resumes --verbose
+```
+
+Geracao de curriculo a partir de fixture:
+
+```powershell
+python -m radar_vagas --generate-resume tests/fixtures/jobs/bi_job.json
+```
+
+Teste do webhook:
+
+```powershell
+python -m radar_vagas --test-discord
+```
+
+## Execucao Local
+
+### Windows
 
 ```powershell
 py -3.12 -m venv .venv
@@ -50,11 +136,9 @@ python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
-Se o launcher `py` nao estiver disponivel, use o executavel absoluto do Python 3.12 instalado na maquina.
+### Configuracao
 
-## Configuracao local
-
-Arquivos relevantes:
+Arquivos principais:
 
 - `.env`
 - `config/profile.yaml`
@@ -73,134 +157,28 @@ LOG_LEVEL=INFO
 ENVIRONMENT=development
 ```
 
-Regras importantes:
-
-- `.env` nao deve ser versionado
-- `config/candidate_profile.local.yaml` deve conter apenas o perfil real local
-- `config/candidate_profile.example.yaml` existe apenas como modelo ficticio
-- `config/profile.yaml` concentra termos, localizacoes, filtros e pesos
-
-## Comandos principais
+Comandos uteis:
 
 ```powershell
-ruff check .
-pytest
-pytest --cov=src/radar_vagas --cov-report=term-missing
 python -m radar_vagas
 python -m radar_vagas --dry-run
-python -m radar_vagas --dry-run --save-resumes
 python -m radar_vagas --provider remotive --max-jobs 3 --verbose
 python -m radar_vagas --provider jooble --term "Analista de Dados" --location "Curitiba"
-python -m radar_vagas --generate-resume tests/fixtures/jobs/bi_job.json
-python -m radar_vagas --test-discord
-```
-
-## Comportamento da CLI
-
-- `python -m radar_vagas` executa o pipeline completo com a configuracao atual.
-- `--dry-run` busca, avalia e gera saida sem enviar mensagens e sem alterar `data/seen_jobs.json`.
-- `--dry-run --save-resumes` preserva os DOCX gerados para revisao local.
-- `--provider jooble` ou `--provider remotive` limita as fontes processadas.
-- `--minimum-score` e `--max-jobs` sobrescrevem os limites configurados.
-- `--generate-resume CAMINHO_JSON` gera um curriculo a partir de uma vaga normalizada.
-- `--test-discord` envia uma mensagem de teste com DOCX ficticio; por padrao, o arquivo de teste fica apenas em diretorio temporario.
-- `--verbose` ativa logs detalhados.
-
-## Curriculos gerados
-
-Os curriculos seguem um modelo linear e compativel com ATS:
-
-- sem tabelas
-- sem colunas
-- sem imagens
-- sem icones
-- com secoes claras
-- com conteudo somente do perfil-base aprovado
-
-Estrutura usada:
-
-1. Cabecalho
-2. Resumo Profissional
-3. Competencias Tecnicas
-4. Experiencia em Dados
-5. Projetos Selecionados
-6. Formacao e Destaques
-7. Experiencia Adicional, quando aplicavel
-
-Os arquivos usam o padrao:
-
-```text
-Curriculo_Renan_Dobriansky_<Empresa>_<Cargo>.docx
-```
-
-## Historico e deduplicacao
-
-- o historico fica em `data/seen_jobs.json`
-- o schema atual do historico e `v3`
-- a escrita e atomica
-- JSON invalido gera backup antes da recuperacao
-- registros antigos sao podados
-- o modo `dry-run` nao persiste alteracoes
-- a URL normalizada e persistida apenas como hash
-- a descricao completa da vaga nao e persistida no historico
-- a deduplicacao segue esta ordem:
-
-```text
-1. provider + provider_job_id
-2. URL normalizada
-3. fingerprint SHA-256 de titulo + empresa + localizacao
 ```
 
 ## GitHub Actions
 
-O repositorio agora separa validacao continua de execucao produtiva:
+O repositorio usa dois workflows:
 
 - `.github/workflows/ci.yml`
 - `.github/workflows/radar.yml`
 
-### CI
+Resumo:
 
-O workflow `CI` executa em:
+- `CI`: lint e testes, sem secrets produtivos;
+- `Radar de Vagas`: execucao agendada e manual, com estado operacional em `radar-state`.
 
-- `push`
-- `pull_request`
-- `workflow_dispatch`
-
-Ele roda:
-
-- `ruff check .`
-- `pytest`
-
-Esse workflow usa apenas `permissions: contents: read` e nao recebe secrets produtivos.
-
-### Radar
-
-O workflow `Radar de Vagas` executa em:
-
-- `workflow_dispatch`
-- agendamento de segunda a sexta as `08:00` e `14:00`
-- timezone `America/Sao_Paulo`
-
-Ele roda:
-
-- `ruff check .`
-- `pytest`
-- `python -m radar_vagas`
-- commit automatico de `data/seen_jobs.json` apenas quando houver alteracao
-
-As permissoes ficaram separadas assim:
-
-- nivel do workflow: `contents: read`
-- job de validacao: `contents: read`
-- job produtivo `radar`: `contents: write`
-
-Os secrets deixaram de ficar no escopo do job inteiro e agora sao injetados somente nestes passos:
-
-- `Validate required secrets`
-- `Materialize candidate profile`
-- `Run radar`
-
-### Secrets obrigatorios
+Secrets obrigatorios do workflow produtivo:
 
 - `DISCORD_WEBHOOK_URL`
 - `JOOBLE_API_KEY`
@@ -208,63 +186,60 @@ Os secrets deixaram de ficar no escopo do job inteiro e agora sao injetados some
 - `CANDIDATE_PHONE`
 - `CANDIDATE_PROFILE_YAML`
 
-O secret `CANDIDATE_PROFILE_YAML` deve conter o conteudo completo de `config/candidate_profile.local.yaml`. O workflow recria esse arquivo apenas no runner, usa `RESUME_OUTPUT_DIRECTORY` temporario para os DOCX e remove os arquivos sensiveis ao final.
-
-O workflow produtivo nao publica curriculos reais como artifact. No `workflow_dispatch`, ele pode publicar apenas um relatorio sanitizado da execucao com `upload_sanitized_report=true`.
-
-O estado operacional nao e mais commitado no `main`. O workflow usa a branch dedicada `radar-state` para persistir apenas `data/seen_jobs.json`, evitando misturar commits operacionais com commits de codigo.
-
-### Dependabot
-
-O arquivo `.github/dependabot.yml` monitora:
-
-- dependencias Python (`pip`)
-- GitHub Actions
-
-### Validacao manual inicial
-
-1. Abra `Actions` no GitHub.
-2. Execute o workflow `Radar de Vagas` com `workflow_dispatch`.
-3. Confirme que `Lint`, `Test` e `Run radar` concluem com sucesso.
-4. Se quiser um artifact do run manual, use `upload_sanitized_report=true`.
-5. Verifique se apenas `data/seen_jobs.json` foi commitado automaticamente quando houver alteracao.
-6. Confirme que o job produtivo nao publica `.docx` como artifact.
-7. Rode uma segunda execucao e confirme que vagas ja notificadas nao sao reenviadas.
-
-## Estrutura do repositorio
+## Estrutura
 
 ```text
-src/radar_vagas/      Codigo-fonte do pacote
-config/               Configuracoes YAML e exemplos
-data/                 Persistencia local do historico
-output/resumes/       Saida local de curriculos preservados
-tests/                Testes automatizados
-Context/              Documentos de especificacao originais
-.github/workflows/    Automacao do GitHub Actions
-docs/                 Documentacao operacional e tecnica
+radar-vagas-discord/
+|-- .github/
+|   |-- dependabot.yml
+|   `-- workflows/
+|       |-- ci.yml
+|       `-- radar.yml
+|-- config/
+|-- Context/
+|-- data/
+|-- docs/
+|   |-- architecture.md
+|   |-- execution.md
+|   |-- operations.md
+|   |-- roadmap.md
+|   `-- security.md
+|-- output/
+|-- src/
+|   `-- radar_vagas/
+|-- tests/
+|-- .gitattributes
+|-- AGENTS.md
+|-- CONTEXTO_RADAR_VAGAS_DISCORD.md
+|-- GUIA_CODEX_RADAR_VAGAS_DISCORD.md
+|-- LICENSE
+`-- README.md
 ```
 
-## Seguranca e versionamento
+## Limitacoes
 
-- nao versione `.env`
-- nao versione `config/candidate_profile.local.yaml`
-- nao versione curriculos gerados em `output/resumes/`
-- nao versione backups operacionais de `data/`
-- nunca cole o conteudo de `CANDIDATE_PROFILE_YAML` em arquivos versionados
-- nunca registre webhook completo, chave de API, email ou telefone em logs
+- a qualidade dos resultados depende do que os providers retornam;
+- Jooble e Remotive podem trazer bastante ruido para termos amplos;
+- o orcamento do curriculo e heuristico, nao visual;
+- o scoring continua deterministico e nao usa IA generativa;
+- a elegibilidade final ainda depende de revisao humana antes da candidatura.
 
-## Validacao recomendada
+## Roadmap
 
-```powershell
-ruff check .
-pytest
-pytest --cov=src/radar_vagas --cov-report=term-missing
-python -m radar_vagas --dry-run --save-resumes --verbose
-python -m radar_vagas --test-discord
-```
+- reduzir ainda mais o ruido dos providers com melhor filtragem semantica;
+- ampliar diagnosticos locais para inspecao de fila e retries;
+- revisar continuamente os pesos e aliases do scoring;
+- evoluir a documentacao com exemplos sanitizados de execucao;
+- fortalecer ainda mais a observabilidade da branch `radar-state`.
+
+## Licenca
+
+Este projeto esta licenciado sob a [MIT License](LICENSE).
 
 ## Especificacao
 
-Os arquivos `CONTEXTO_RADAR_VAGAS_DISCORD.md` e `GUIA_CODEX_RADAR_VAGAS_DISCORD.md` continuam sendo a fonte principal de requisitos do projeto.
+Os arquivos abaixo continuam sendo a base principal dos requisitos do projeto:
 
-As decisoes de persistencia operacional e branch dedicada de estado estao documentadas em `docs/operations.md`.
+- `CONTEXTO_RADAR_VAGAS_DISCORD.md`
+- `GUIA_CODEX_RADAR_VAGAS_DISCORD.md`
+- `PLANO_REAJUSTE_RADAR_VAGAS_CODEX.md`
