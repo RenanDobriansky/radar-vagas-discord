@@ -19,11 +19,9 @@ def test_ci_workflow_is_read_only_and_secret_free() -> None:
     workflow, raw_text = _load_yaml(".github/workflows/ci.yml")
 
     assert workflow["name"] == "CI"
-    assert workflow["on"] == {
-        "push": None,
-        "pull_request": None,
-        "workflow_dispatch": None,
-    }
+    assert workflow["on"]["push"] == {"branches-ignore": ["radar-state"]}
+    assert workflow["on"]["pull_request"] is None
+    assert workflow["on"]["workflow_dispatch"] is None
     assert workflow["permissions"] == {"contents": "read"}
     assert "${{ secrets." not in raw_text
 
@@ -53,6 +51,7 @@ def test_radar_workflow_scopes_secrets_to_steps_and_uploads_only_sanitized_artif
     radar_job = workflow["jobs"]["radar"]
     assert validate_job["permissions"] == {"contents": "read"}
     assert radar_job["permissions"] == {"contents": "write"}
+    assert radar_job["env"]["STATE_BRANCH"] == "radar-state"
 
     radar_job_env = radar_job["env"]
     assert all("${{ secrets." not in str(value) for value in radar_job_env.values())
@@ -82,6 +81,11 @@ def test_radar_workflow_scopes_secrets_to_steps_and_uploads_only_sanitized_artif
         step_by_name["Upload sanitized execution report"]["with"]["path"]
         == "${{ env.SANITIZED_REPORT_PATH }}"
     )
+    assert 'HEAD:${STATE_BRANCH}' in step_by_name["Commit updated job history"]["run"]
+    assert "git ls-remote --exit-code --heads origin" in (
+        step_by_name["Restore operational state"]["run"]
+    )
+    assert "merge_history_documents" in step_by_name["Commit updated job history"]["run"]
 
 
 def test_dependabot_covers_python_and_github_actions() -> None:

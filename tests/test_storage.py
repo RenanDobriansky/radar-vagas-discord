@@ -9,7 +9,13 @@ import pytest
 
 from radar_vagas.deduplication import DuplicateReason
 from radar_vagas.models import EvaluatedJob, JobPosting, JobStatus, Priority, WorkMode
-from radar_vagas.storage import HISTORY_VERSION, JobHistoryStore
+from radar_vagas.storage import (
+    HISTORY_VERSION,
+    HistoryDocument,
+    JobHistoryStore,
+    load_history_document,
+    merge_history_documents,
+)
 
 
 def build_job_posting(**overrides: object) -> JobPosting:
@@ -91,6 +97,29 @@ def test_storage_persists_and_reloads_history(tmp_path: Path) -> None:
     assert stored_record.job_snapshot.title == job.title
     assert stored_record.first_seen_at == datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
     assert stored_record.last_seen_at == datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
+    assert stored_record.job_snapshot.url == "https://example.com/jobs/123?utm_source=linkedin&id=55"
+
+
+def test_storage_minimizes_persisted_payload_shape(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    store = JobHistoryStore(history_path)
+    job = build_job_posting()
+
+    store.record_job(job, status=JobStatus.QUEUED, score=82)
+    store.save()
+
+    payload = json.loads(history_path.read_text(encoding="utf-8"))
+    stored = next(iter(payload["jobs"].values()))
+
+    assert payload["version"] == HISTORY_VERSION
+    assert "normalized_url_hash" in stored
+    assert "job_snapshot" in stored
+    assert "url" not in stored
+    assert "normalized_url" not in stored
+    assert "title" not in stored
+    assert "company" not in stored
+    assert "description" not in stored["job_snapshot"]
+    assert "salary" not in stored["job_snapshot"]
 
 
 def test_storage_finds_duplicates_by_provider_url_and_fingerprint(tmp_path: Path) -> None:
@@ -331,7 +360,7 @@ def test_storage_migrates_v1_to_v2_and_creates_backup_on_save(tmp_path: Path) ->
 
     store = JobHistoryStore(history_path)
 
-    assert store.version == 2
+    assert store.version == HISTORY_VERSION
     assert store.jobs["fp-1"].status is JobStatus.QUEUED
     assert store.jobs["fp-2"].status is JobStatus.RETRY_PENDING
     assert store.jobs["fp-2"].attempts == 1
@@ -340,6 +369,137 @@ def test_storage_migrates_v1_to_v2_and_creates_backup_on_save(tmp_path: Path) ->
     store.save()
 
     migrated = json.loads(history_path.read_text(encoding="utf-8"))
-    assert migrated["version"] == 2
+    assert migrated["version"] == HISTORY_VERSION
     backups = list(tmp_path.glob("seen_jobs.*.v1.json.bak"))
     assert backups, "expected a migration backup file to be created"
+
+
+def test_storage_migrates_v2_to_v3_and_reduces_redundant_fields(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    legacy_payload = {
+        "version": 2,
+        "jobs": {
+            "fp-1": {
+                "provider": "jooble",
+                "provider_job_id": "123",
+                "title": "Analista de Dados Junior",
+                "company": "Empresa X",
+                "url": "https://example.com/jobs/123",
+                "normalized_url": "https://example.com/jobs/123",
+                "fingerprint": "fp-1",
+                "job_snapshot": build_job_posting().model_dump(mode="json"),
+                "score": 82,
+                "priority": "boa_oportunidade",
+                "required_skills": ["SQL"],
+                "matched_candidate_skills": ["SQL"],
+                "candidate_skill_gaps": [],
+                "optional_job_skills": ["Excel"],
+                "extracted_keywords": ["sql"],
+                "relevant_domains": ["bi"],
+                "rejection_reasons": [],
+                "score_explanation": "migrated",
+                "status": "queued",
+                "attempts": 0,
+                "last_error_code": None,
+                "last_error_message": None,
+                "next_retry_at": None,
+                "first_seen_at": "2026-06-23T10:00:00Z",
+                "last_seen_at": "2026-06-23T12:00:00Z",
+                "notified_at": None,
+            }
+        },
+    }
+    history_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
+
+    store = JobHistoryStore(history_path)
+
+    assert store.version == HISTORY_VERSION
+    assert store.jobs["fp-1"].job_snapshot.title == "Analista de Dados Junior"
+    assert store.jobs["fp-1"].job_snapshot.url == "https://example.com/jobs/123?utm_source=linkedin&id=55"
+
+    store.save()
+
+    migrated = json.loads(history_path.read_text(encoding="utf-8"))
+    stored = migrated["jobs"]["fp-1"]
+    assert "url" not in stored
+    assert "normalized_url" not in stored
+    assert "normalized_url_hash" in stored
+    backups = list(tmp_path.glob("seen_jobs.*.v2.json.bak"))
+    assert backups, "expected a migration backup file to be created"
+
+
+def test_load_history_document_applies_migration_for_external_merge_use(tmp_path: Path) -> None:
+    history_path = tmp_path / "seen_jobs.json"
+    history_path.write_text(
+        json.dumps({"version": 1, "jobs": {}}),
+        encoding="utf-8",
+    )
+
+    document = load_history_document(history_path)
+
+    assert isinstance(document, HistoryDocument)
+    assert document.version == HISTORY_VERSION
+
+
+def test_merge_history_documents_prefers_final_state_and_preserves_audit_fields() -> None:
+    queued_job = build_job_posting(provider_job_id="merge-1", url="https://example.com/jobs/merge-1")
+    store_primary = JobHistoryStore(Path("data/primary-seen-jobs.json"), dry_run=True)
+    store_primary.record_job(
+        queued_job,
+        status=JobStatus.QUEUED,
+        score=81,
+        seen_at=datetime(2026, 6, 23, 12, 0, tzinfo=UTC),
+    )
+    primary = store_primary.to_document()
+
+    store_secondary = JobHistoryStore(Path("data/secondary-seen-jobs.json"), dry_run=True)
+    store_secondary.record_job(
+        queued_job,
+        status=JobStatus.NOTIFIED,
+        score=81,
+        seen_at=datetime(2026, 6, 23, 13, 0, tzinfo=UTC),
+        notified_at=datetime(2026, 6, 23, 13, 0, tzinfo=UTC),
+    )
+    secondary = store_secondary.to_document()
+
+    merged = merge_history_documents(primary, secondary)
+    record = merged.jobs[next(iter(merged.jobs))]
+
+    assert record.status is JobStatus.NOTIFIED
+    assert record.first_seen_at == datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
+    assert record.last_seen_at == datetime(2026, 6, 23, 13, 0, tzinfo=UTC)
+    assert record.notified_at == datetime(2026, 6, 23, 13, 0, tzinfo=UTC)
+    assert record.last_error_code is None
+    assert record.next_retry_at is None
+
+
+def test_merge_history_documents_preserves_retry_metadata_for_retry_pending_records() -> None:
+    failed_job = build_job_posting(provider_job_id="merge-2", url="https://example.com/jobs/merge-2")
+    store_primary = JobHistoryStore(Path("data/retry-primary.json"), dry_run=True)
+    store_primary.record_failure(
+        failed_job,
+        score=77,
+        error_code="resume_generation_failed",
+        error_message="Resume generation failed (RuntimeError)",
+        seen_at=datetime(2026, 6, 23, 12, 0, tzinfo=UTC),
+    )
+    primary = store_primary.to_document()
+
+    store_secondary = JobHistoryStore(Path("data/retry-secondary.json"), dry_run=True)
+    store_secondary.record_failure(
+        failed_job,
+        score=77,
+        error_code="resume_generation_failed",
+        error_message="Resume generation failed (RuntimeError)",
+        seen_at=datetime(2026, 6, 23, 13, 0, tzinfo=UTC),
+    )
+    secondary = store_secondary.to_document()
+
+    merged = merge_history_documents(primary, secondary)
+    record = merged.jobs[next(iter(merged.jobs))]
+
+    assert record.status is JobStatus.RETRY_PENDING
+    assert record.attempts == 1
+    assert record.last_seen_at == datetime(2026, 6, 23, 13, 0, tzinfo=UTC)
+    assert record.last_error_code == "resume_generation_failed"
+    assert record.next_retry_at == datetime(2026, 6, 23, 14, 0, tzinfo=UTC)

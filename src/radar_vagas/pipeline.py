@@ -628,7 +628,10 @@ def _record_to_evaluated_job(record: StoredJobRecord) -> EvaluatedJob:
     score = record.score or 0
     priority = record.priority or _priority_from_score(score)
     return EvaluatedJob(
-        job=record.job_snapshot.model_copy(deep=True),
+        job=record.job_snapshot.to_job_posting(
+            provider=record.provider,
+            provider_job_id=record.provider_job_id,
+        ),
         score=score,
         priority=priority,
         required_skills=record.required_skills.copy(),

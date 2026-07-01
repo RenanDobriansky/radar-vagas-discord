@@ -58,6 +58,7 @@ jobs:
       ENVIRONMENT: production
       LOG_LEVEL: INFO
       PYTHONUTF8: "1"
+      STATE_BRANCH: radar-state
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -78,6 +79,22 @@ jobs:
           echo "RADAR_SUMMARY_PATH=${RUNNER_TEMP}/radar-summary.json" >> "${GITHUB_ENV}"
           echo "SANITIZED_ARTIFACT_DIRECTORY=${RUNNER_TEMP}/radar-artifacts" >> "${GITHUB_ENV}"
           echo "SANITIZED_REPORT_PATH=${RUNNER_TEMP}/radar-artifacts/radar-summary-sanitized.json" >> "${GITHUB_ENV}"
+          echo "STATE_WORKTREE_PATH=${RUNNER_TEMP}/radar-state-worktree" >> "${GITHUB_ENV}"
+
+      - name: Restore operational state
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          if ! git ls-remote --exit-code --heads origin "${STATE_BRANCH}" >/dev/null 2>&1; then
+            echo "State branch ${STATE_BRANCH} does not exist yet."
+            exit 0
+          fi
+
+          git fetch origin "${STATE_BRANCH}"
+          if git cat-file -e "origin/${STATE_BRANCH}:data/seen_jobs.json" 2>/dev/null; then
+            git show "origin/${STATE_BRANCH}:data/seen_jobs.json" > data/seen_jobs.json
+          fi
 
       - name: Validate required secrets
         shell: bash
@@ -202,18 +219,59 @@ jobs:
             exit 0
           fi
 
+          rm -rf "${STATE_WORKTREE_PATH}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
-          git add data/seen_jobs.json
 
-          if git diff --cached --quiet; then
-            echo "No history changes detected."
-            exit 0
+          if git ls-remote --exit-code --heads origin "${STATE_BRANCH}" >/dev/null 2>&1; then
+            git fetch origin "${STATE_BRANCH}"
+            git worktree add --detach "${STATE_WORKTREE_PATH}" "origin/${STATE_BRANCH}"
+          else
+            git worktree add --detach "${STATE_WORKTREE_PATH}" HEAD
+            (
+              cd "${STATE_WORKTREE_PATH}"
+              git checkout --orphan "${STATE_BRANCH}"
+              git rm -rf . >/dev/null 2>&1 || true
+            )
           fi
 
-          git commit -m "chore: update seen jobs [skip ci]"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          mkdir -p "${STATE_WORKTREE_PATH}/data"
+          cp data/seen_jobs.json "${RUNNER_TEMP}/local-seen-jobs.json"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          from radar_vagas.storage import (
+              HistoryDocument,
+              load_history_document,
+              merge_history_documents,
+              write_history_document,
+          )
+
+          local_path = Path(os.environ["RUNNER_TEMP"]) / "local-seen-jobs.json"
+          remote_path = Path(os.environ["STATE_WORKTREE_PATH"]) / "data" / "seen_jobs.json"
+
+          local_document = load_history_document(local_path)
+          remote_document = (
+              load_history_document(remote_path)
+              if remote_path.exists()
+              else HistoryDocument()
+          )
+          merged_document = merge_history_documents(local_document, remote_document)
+          write_history_document(remote_path, merged_document)
+          PY
+
+          (
+            cd "${STATE_WORKTREE_PATH}"
+            git add data/seen_jobs.json
+            if git diff --cached --quiet; then
+              echo "No history changes detected after merge."
+              exit 0
+            fi
+            git commit -m "chore: update seen jobs [skip ci]"
+            git push origin "HEAD:${STATE_BRANCH}"
+          )
 
       - name: Cleanup sensitive files
         if: always()
@@ -223,3 +281,4 @@ jobs:
           rm -f "${CANDIDATE_PROFILE_PATH}"
           rm -rf "${RESUME_OUTPUT_DIRECTORY}"
           rm -rf "${SANITIZED_ARTIFACT_DIRECTORY}"
+          rm -rf "${STATE_WORKTREE_PATH}"

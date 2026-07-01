@@ -136,10 +136,13 @@ Curriculo_Renan_Dobriansky_<Empresa>_<Cargo>.docx
 ## Historico e deduplicacao
 
 - o historico fica em `data/seen_jobs.json`
+- o schema atual do historico e `v3`
 - a escrita e atomica
 - JSON invalido gera backup antes da recuperacao
 - registros antigos sao podados
 - o modo `dry-run` nao persiste alteracoes
+- a URL normalizada e persistida apenas como hash
+- a descricao completa da vaga nao e persistida no historico
 - a deduplicacao segue esta ordem:
 
 ```text
@@ -209,6 +212,8 @@ O secret `CANDIDATE_PROFILE_YAML` deve conter o conteudo completo de `config/can
 
 O workflow produtivo nao publica curriculos reais como artifact. No `workflow_dispatch`, ele pode publicar apenas um relatorio sanitizado da execucao com `upload_sanitized_report=true`.
 
+O estado operacional nao e mais commitado no `main`. O workflow usa a branch dedicada `radar-state` para persistir apenas `data/seen_jobs.json`, evitando misturar commits operacionais com commits de codigo.
+
 ### Dependabot
 
 O arquivo `.github/dependabot.yml` monitora:
@@ -236,6 +241,7 @@ output/resumes/       Saida local de curriculos preservados
 tests/                Testes automatizados
 Context/              Documentos de especificacao originais
 .github/workflows/    Automacao do GitHub Actions
+docs/                 Documentacao operacional e tecnica
 ```
 
 ## Seguranca e versionamento
@@ -260,3 +266,5 @@ python -m radar_vagas --test-discord
 ## Especificacao
 
 Os arquivos `CONTEXTO_RADAR_VAGAS_DISCORD.md` e `GUIA_CODEX_RADAR_VAGAS_DISCORD.md` continuam sendo a fonte principal de requisitos do projeto.
+
+As decisoes de persistencia operacional e branch dedicada de estado estao documentadas em `docs/operations.md`.

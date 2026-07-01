@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from json import JSONDecodeError
 from pathlib import Path
 
@@ -19,10 +20,19 @@ from radar_vagas.deduplication import (
     make_normalized_job_url,
     make_provider_job_key,
 )
-from radar_vagas.models import EvaluatedJob, JobPosting, JobStatus, Priority, utc_now
+from radar_vagas.models import (
+    EvaluatedJob,
+    JobPosting,
+    JobStatus,
+    Priority,
+    Seniority,
+    WorkMode,
+    utc_now,
+)
 
-HISTORY_VERSION = 2
+HISTORY_VERSION = 3
 DEFAULT_HISTORY_PATH = Path("data/seen_jobs.json")
+DEFAULT_STATE_BRANCH = "radar-state"
 DEFAULT_MAX_RETRY_ATTEMPTS = 3
 RETRY_BACKOFF_SCHEDULE = (
     timedelta(hours=1),
@@ -38,6 +48,14 @@ PROCESSABLE_JOB_STATUSES = {
     JobStatus.QUEUED,
     JobStatus.RETRY_PENDING,
     JobStatus.RESUME_GENERATED,
+}
+STATUS_MERGE_PRIORITY = {
+    JobStatus.NOTIFIED: 6,
+    JobStatus.REJECTED: 5,
+    JobStatus.DEAD_LETTER: 4,
+    JobStatus.RESUME_GENERATED: 3,
+    JobStatus.RETRY_PENDING: 2,
+    JobStatus.QUEUED: 1,
 }
 
 
@@ -65,17 +83,95 @@ def _normalize_error_message(message: str | None) -> str | None:
     return cleaned or None
 
 
+def _build_url_hash(normalized_url: str) -> str:
+    return sha256(normalized_url.encode("utf-8")).hexdigest()
+
+
+def _make_normalized_url_hash(job: JobPosting) -> str:
+    return _build_url_hash(make_normalized_job_url(job))
+
+
+class StoredJobSnapshot(BaseModel):
+    """Snapshot minimo da vaga necessario para retries e auditoria."""
+
+    title: str
+    company: str | None = None
+    location: str | None = None
+    seniority: Seniority | None = None
+    work_mode: WorkMode | None = None
+    employment_type: str | None = None
+    url: str
+    source_name: str
+    search_term: str | None = None
+    published_at: datetime | None = None
+    updated_at: datetime | None = None
+    collected_at: datetime
+
+    @field_validator(
+        "published_at",
+        "updated_at",
+        "collected_at",
+        mode="before",
+    )
+    @classmethod
+    def normalize_timestamps(cls, value: datetime | str | None) -> datetime | None:
+        return _normalize_datetime(value)
+
+    @classmethod
+    def from_job_posting(cls, job: JobPosting) -> StoredJobSnapshot:
+        return cls.model_validate(
+            {
+                "title": job.title,
+                "company": job.company,
+                "location": job.location,
+                "seniority": job.seniority,
+                "work_mode": job.work_mode,
+                "employment_type": job.employment_type,
+                "url": str(job.url),
+                "source_name": job.source_name,
+                "search_term": job.search_term,
+                "published_at": job.published_at,
+                "updated_at": job.updated_at,
+                "collected_at": job.collected_at,
+            }
+        )
+
+    def to_job_posting(
+        self,
+        *,
+        provider: str,
+        provider_job_id: str | None,
+    ) -> JobPosting:
+        return JobPosting.model_validate(
+            {
+                "provider": provider,
+                "provider_job_id": provider_job_id,
+                "title": self.title,
+                "company": self.company,
+                "location": self.location,
+                "seniority": self.seniority,
+                "work_mode": self.work_mode,
+                "employment_type": self.employment_type,
+                "description": "",
+                "salary": None,
+                "published_at": self.published_at,
+                "updated_at": self.updated_at,
+                "url": self.url,
+                "source_name": self.source_name,
+                "search_term": self.search_term,
+                "collected_at": self.collected_at,
+            }
+        )
+
+
 class StoredJobRecord(BaseModel):
     """Registro persistido para uma vaga ja processada ou enfileirada."""
 
     provider: str
     provider_job_id: str | None = None
-    title: str
-    company: str | None = None
-    url: str
-    normalized_url: str
+    normalized_url_hash: str
     fingerprint: str
-    job_snapshot: JobPosting
+    job_snapshot: StoredJobSnapshot
     score: int | None = Field(default=None, ge=0, le=100)
     priority: Priority | None = None
     required_skills: list[str] = Field(default_factory=list)
@@ -139,6 +235,14 @@ class StoredJobRecord(BaseModel):
     def missing_skills(self) -> list[str]:
         return self.candidate_skill_gaps
 
+    @property
+    def title(self) -> str:
+        return self.job_snapshot.title
+
+    @property
+    def company(self) -> str | None:
+        return self.job_snapshot.company
+
 
 class HistoryDocument(BaseModel):
     """Documento JSON persistido em `data/seen_jobs.json`."""
@@ -176,6 +280,60 @@ class LegacyHistoryDocumentV1(BaseModel):
     jobs: dict[str, LegacyStoredJobRecordV1] = Field(default_factory=dict)
 
 
+class LegacyStoredJobRecordV2(BaseModel):
+    """Schema legado da versao 2 do historico."""
+
+    provider: str
+    provider_job_id: str | None = None
+    title: str
+    company: str | None = None
+    url: str
+    normalized_url: str
+    fingerprint: str
+    job_snapshot: JobPosting
+    score: int | None = Field(default=None, ge=0, le=100)
+    priority: Priority | None = None
+    required_skills: list[str] = Field(default_factory=list)
+    matched_candidate_skills: list[str] = Field(default_factory=list)
+    candidate_skill_gaps: list[str] = Field(default_factory=list)
+    optional_job_skills: list[str] = Field(default_factory=list)
+    extracted_keywords: list[str] = Field(default_factory=list)
+    relevant_domains: list[str] = Field(default_factory=list)
+    rejection_reasons: list[str] = Field(default_factory=list)
+    score_explanation: str | None = None
+    status: JobStatus
+    attempts: int = Field(default=0, ge=0)
+    last_error_code: str | None = None
+    last_error_message: str | None = None
+    next_retry_at: datetime | None = None
+    first_seen_at: datetime
+    last_seen_at: datetime
+    notified_at: datetime | None = None
+
+    @field_validator(
+        "first_seen_at",
+        "last_seen_at",
+        "notified_at",
+        "next_retry_at",
+        mode="before",
+    )
+    @classmethod
+    def normalize_timestamps(cls, value: datetime | str | None) -> datetime | None:
+        return _normalize_datetime(value)
+
+    @field_validator("last_error_message", mode="before")
+    @classmethod
+    def sanitize_error_message(cls, value: str | None) -> str | None:
+        return _normalize_error_message(value)
+
+
+class LegacyHistoryDocumentV2(BaseModel):
+    """Documento JSON persistido no formato legado v2."""
+
+    version: int = 2
+    jobs: dict[str, LegacyStoredJobRecordV2] = Field(default_factory=dict)
+
+
 @dataclass(slots=True)
 class HistoryLookupResult:
     """Representa um match encontrado no historico."""
@@ -183,6 +341,40 @@ class HistoryLookupResult:
     record: StoredJobRecord
     reason: DuplicateReason
     matched_key: str
+
+
+def load_history_document(path: Path | str) -> HistoryDocument:
+    """Carrega um documento de historico, aplicando migracao quando necessario."""
+    return JobHistoryStore(path, dry_run=True).to_document()
+
+
+def write_history_document(path: Path | str, document: HistoryDocument) -> None:
+    """Persiste um documento de historico com escrita atomica."""
+    _persist_history_document(Path(path), document)
+
+
+def merge_history_documents(
+    primary: HistoryDocument,
+    secondary: HistoryDocument,
+) -> HistoryDocument:
+    """Combina dois documentos de historico preservando o estado mais forte e mais recente."""
+    merged_jobs: dict[str, StoredJobRecord] = {}
+    fingerprints = set(primary.jobs) | set(secondary.jobs)
+
+    for fingerprint in fingerprints:
+        left = primary.jobs.get(fingerprint)
+        right = secondary.jobs.get(fingerprint)
+        if left is None and right is not None:
+            merged_jobs[fingerprint] = right.model_copy(deep=True)
+            continue
+        if right is None and left is not None:
+            merged_jobs[fingerprint] = left.model_copy(deep=True)
+            continue
+        if left is None or right is None:
+            continue
+        merged_jobs[fingerprint] = _merge_record_pair(left, right)
+
+    return HistoryDocument(version=HISTORY_VERSION, jobs=merged_jobs)
 
 
 class JobHistoryStore:
@@ -212,6 +404,13 @@ class JobHistoryStore:
     @property
     def jobs(self) -> dict[str, StoredJobRecord]:
         return self._document.jobs
+
+    def to_document(self) -> HistoryDocument:
+        return self._document.model_copy(deep=True)
+
+    def replace_document(self, document: HistoryDocument) -> None:
+        self._document = document.model_copy(deep=True)
+        self._rebuild_indexes()
 
     def _empty_document(self) -> HistoryDocument:
         return HistoryDocument(version=HISTORY_VERSION, jobs={})
@@ -257,30 +456,43 @@ class JobHistoryStore:
                 self._backup_existing_file(suffix="invalid")
                 raise HistoryStorageError(f"Invalid history document in {self.path}") from exc
 
-        if raw_version != 1:
-            self._backup_existing_file(suffix="unsupported")
-            raise HistoryStorageError(
-                f"Unsupported history version {raw_version} in {self.path}"
-            )
+        if raw_version == 2:
+            try:
+                legacy_document = LegacyHistoryDocumentV2.model_validate(raw_document)
+            except ValidationError as exc:
+                self._backup_existing_file(suffix="invalid")
+                raise HistoryStorageError(f"Invalid history document in {self.path}") from exc
 
-        try:
-            legacy_document = LegacyHistoryDocumentV1.model_validate(raw_document)
-        except ValidationError as exc:
-            self._backup_existing_file(suffix="invalid")
-            raise HistoryStorageError(f"Invalid history document in {self.path}") from exc
+            self._migration_source_version = 2
+            migrated_jobs = {
+                fingerprint: self._migrate_record_v2(record)
+                for fingerprint, record in legacy_document.jobs.items()
+            }
+            return HistoryDocument(version=HISTORY_VERSION, jobs=migrated_jobs)
 
-        self._migration_source_version = 1
-        migrated_jobs = {
-            fingerprint: self._migrate_record_v1(record)
-            for fingerprint, record in legacy_document.jobs.items()
-        }
-        return HistoryDocument(version=HISTORY_VERSION, jobs=migrated_jobs)
+        if raw_version == 1:
+            try:
+                legacy_document = LegacyHistoryDocumentV1.model_validate(raw_document)
+            except ValidationError as exc:
+                self._backup_existing_file(suffix="invalid")
+                raise HistoryStorageError(f"Invalid history document in {self.path}") from exc
+
+            self._migration_source_version = 1
+            migrated_jobs = {
+                fingerprint: self._migrate_record_v1(record)
+                for fingerprint, record in legacy_document.jobs.items()
+            }
+            return HistoryDocument(version=HISTORY_VERSION, jobs=migrated_jobs)
+
+        self._backup_existing_file(suffix="unsupported")
+        raise HistoryStorageError(
+            f"Unsupported history version {raw_version} in {self.path}"
+        )
 
     def _migrate_record_v1(self, record: LegacyStoredJobRecordV1) -> StoredJobRecord:
         status, attempts, last_error_code, last_error_message, next_retry_at = (
             self._map_legacy_status(record)
         )
-        job_snapshot = self._build_migrated_job_snapshot(record)
         score = record.score
         priority = _priority_from_score(score)
         score_explanation = (
@@ -288,16 +500,29 @@ class JobHistoryStore:
             if score is not None
             else "Migrated from history version 1 without stored score"
         )
+        snapshot = StoredJobSnapshot.model_validate(
+            {
+                "title": record.title,
+                "company": record.company,
+                "location": None,
+                "seniority": None,
+                "work_mode": None,
+                "employment_type": None,
+                "url": record.url,
+                "source_name": record.provider.title(),
+                "search_term": None,
+                "published_at": None,
+                "updated_at": record.last_seen_at,
+                "collected_at": record.last_seen_at,
+            }
+        )
 
         return StoredJobRecord(
             provider=record.provider,
             provider_job_id=record.provider_job_id,
-            title=record.title,
-            company=record.company,
-            url=record.url,
-            normalized_url=record.normalized_url,
+            normalized_url_hash=_build_url_hash(record.normalized_url),
             fingerprint=record.fingerprint,
-            job_snapshot=job_snapshot,
+            job_snapshot=snapshot,
             score=score,
             priority=priority,
             required_skills=[],
@@ -313,6 +538,33 @@ class JobHistoryStore:
             last_error_code=last_error_code,
             last_error_message=last_error_message,
             next_retry_at=next_retry_at,
+            first_seen_at=record.first_seen_at,
+            last_seen_at=record.last_seen_at,
+            notified_at=record.notified_at,
+        )
+
+    def _migrate_record_v2(self, record: LegacyStoredJobRecordV2) -> StoredJobRecord:
+        return StoredJobRecord(
+            provider=record.provider,
+            provider_job_id=record.provider_job_id,
+            normalized_url_hash=_build_url_hash(record.normalized_url),
+            fingerprint=record.fingerprint,
+            job_snapshot=StoredJobSnapshot.from_job_posting(record.job_snapshot),
+            score=record.score,
+            priority=record.priority,
+            required_skills=record.required_skills.copy(),
+            matched_candidate_skills=record.matched_candidate_skills.copy(),
+            candidate_skill_gaps=record.candidate_skill_gaps.copy(),
+            optional_job_skills=record.optional_job_skills.copy(),
+            extracted_keywords=record.extracted_keywords.copy(),
+            relevant_domains=record.relevant_domains.copy(),
+            rejection_reasons=record.rejection_reasons.copy(),
+            score_explanation=record.score_explanation,
+            status=record.status,
+            attempts=record.attempts,
+            last_error_code=record.last_error_code,
+            last_error_message=record.last_error_message,
+            next_retry_at=record.next_retry_at,
             first_seen_at=record.first_seen_at,
             last_seen_at=record.last_seen_at,
             notified_at=record.notified_at,
@@ -355,27 +607,6 @@ class JobHistoryStore:
             None,
         )
 
-    def _build_migrated_job_snapshot(self, record: LegacyStoredJobRecordV1) -> JobPosting:
-        return JobPosting.model_validate(
-            {
-                "provider": record.provider,
-                "provider_job_id": record.provider_job_id,
-                "title": record.title,
-                "company": record.company,
-                "location": None,
-                "work_mode": None,
-                "employment_type": None,
-                "description": "",
-                "salary": None,
-                "published_at": None,
-                "updated_at": record.last_seen_at,
-                "url": record.url,
-                "source_name": record.provider.title(),
-                "search_term": None,
-                "collected_at": record.last_seen_at,
-            }
-        )
-
     def _ensure_migration_backup(self) -> None:
         if self._migration_source_version is None or self._migration_backup_created:
             return
@@ -384,13 +615,13 @@ class JobHistoryStore:
 
     def _rebuild_indexes(self) -> None:
         self._provider_index: dict[str, str] = {}
-        self._url_index: dict[str, str] = {}
+        self._url_hash_index: dict[str, str] = {}
 
         for fingerprint, record in self.jobs.items():
             if record.provider_job_id:
                 provider_key = f"{record.provider.casefold()}::{record.provider_job_id.strip()}"
                 self._provider_index[provider_key] = fingerprint
-            self._url_index[record.normalized_url] = fingerprint
+            self._url_hash_index[record.normalized_url_hash] = fingerprint
 
     def is_final_status(self, status: JobStatus) -> bool:
         return status in FINAL_JOB_STATUSES
@@ -439,13 +670,13 @@ class JobHistoryStore:
                 matched_key=provider_key,
             )
 
-        normalized_url = make_normalized_job_url(job)
-        if normalized_url in self._url_index:
-            matched_fingerprint = self._url_index[normalized_url]
+        normalized_url_hash = _make_normalized_url_hash(job)
+        if normalized_url_hash in self._url_hash_index:
+            matched_fingerprint = self._url_hash_index[normalized_url_hash]
             return HistoryLookupResult(
                 record=self.jobs[matched_fingerprint],
                 reason=DuplicateReason.NORMALIZED_URL,
-                matched_key=normalized_url,
+                matched_key=normalized_url_hash,
             )
 
         resolved_fingerprint = fingerprint or make_job_identity_fingerprint(job)
@@ -473,18 +704,17 @@ class JobHistoryStore:
         resolved_notified_at = _normalize_datetime(notified_at)
         resolved_fingerprint = fingerprint or make_job_identity_fingerprint(job)
         lookup = self.find_match(job, fingerprint=resolved_fingerprint)
-        normalized_url = make_normalized_job_url(job)
+        normalized_url_hash = _make_normalized_url_hash(job)
+        snapshot = StoredJobSnapshot.from_job_posting(job)
 
         if lookup is not None:
             existing = lookup.record.model_copy(deep=True)
+            previous_fingerprint = lookup.record.fingerprint
             existing.provider = job.provider
             existing.provider_job_id = job.provider_job_id
-            existing.title = job.title
-            existing.company = job.company
-            existing.url = str(job.url)
-            existing.normalized_url = normalized_url
+            existing.normalized_url_hash = normalized_url_hash
             existing.fingerprint = resolved_fingerprint
-            existing.job_snapshot = job.model_copy(deep=True)
+            existing.job_snapshot = snapshot
             existing.score = score
             existing.status = status
             existing.last_seen_at = resolved_seen_at
@@ -504,19 +734,18 @@ class JobHistoryStore:
             elif status is JobStatus.NOTIFIED:
                 existing.notified_at = resolved_seen_at
 
-            self.jobs[lookup.record.fingerprint] = existing
+            if previous_fingerprint != resolved_fingerprint:
+                self.jobs.pop(previous_fingerprint, None)
+            self.jobs[resolved_fingerprint] = existing
             self._rebuild_indexes()
             return existing
 
         created = StoredJobRecord(
             provider=job.provider,
             provider_job_id=job.provider_job_id,
-            title=job.title,
-            company=job.company,
-            url=str(job.url),
-            normalized_url=normalized_url,
+            normalized_url_hash=normalized_url_hash,
             fingerprint=resolved_fingerprint,
-            job_snapshot=job.model_copy(deep=True),
+            job_snapshot=snapshot,
             score=score,
             priority=(
                 evaluated_job.priority
@@ -623,30 +852,36 @@ class JobHistoryStore:
         if self.dry_run:
             return
 
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_migration_backup()
-        document = HistoryDocument(version=HISTORY_VERSION, jobs=self.jobs)
-        payload = json.dumps(document.model_dump(mode="json"), ensure_ascii=False, indent=2)
+        _persist_history_document(
+            self.path,
+            HistoryDocument(version=HISTORY_VERSION, jobs=self.jobs),
+        )
 
-        temp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                delete=False,
-                dir=self.path.parent,
-                prefix=f"{self.path.stem}.",
-                suffix=".tmp",
-            ) as temp_file:
-                temp_file.write(payload)
-                temp_path = Path(temp_file.name)
 
-            os.replace(temp_path, self.path)
-        except OSError as exc:
-            raise HistoryStorageError(f"Could not persist history file: {self.path}") from exc
-        finally:
-            if temp_path is not None and temp_path.exists():
-                temp_path.unlink()
+def _persist_history_document(path: Path, document: HistoryDocument) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(document.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            delete=False,
+            dir=path.parent,
+            prefix=f"{path.stem}.",
+            suffix=".tmp",
+        ) as temp_file:
+            temp_file.write(payload)
+            temp_path = Path(temp_file.name)
+
+        os.replace(temp_path, path)
+    except OSError as exc:
+        raise HistoryStorageError(f"Could not persist history file: {path}") from exc
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
 
 
 def _priority_from_score(score: int | None) -> Priority | None:
@@ -676,3 +911,99 @@ def _update_record_from_evaluation(record: StoredJobRecord, evaluated_job: Evalu
     record.relevant_domains = evaluated_job.relevant_domains.copy()
     record.rejection_reasons = evaluated_job.rejection_reasons.copy()
     record.score_explanation = evaluated_job.score_explanation
+
+
+def _merge_record_pair(left: StoredJobRecord, right: StoredJobRecord) -> StoredJobRecord:
+    preferred = _preferred_record(left, right)
+    alternate = right if preferred is left else left
+    merged = preferred.model_copy(deep=True)
+
+    merged.provider = preferred.provider or alternate.provider
+    merged.provider_job_id = preferred.provider_job_id or alternate.provider_job_id
+    merged.normalized_url_hash = preferred.normalized_url_hash or alternate.normalized_url_hash
+    merged.fingerprint = preferred.fingerprint or alternate.fingerprint
+    merged.job_snapshot = preferred.job_snapshot.model_copy(deep=True)
+    merged.score = preferred.score if preferred.score is not None else alternate.score
+    merged.priority = preferred.priority or alternate.priority or _priority_from_score(merged.score)
+    merged.required_skills = _merge_ordered_values(
+        preferred.required_skills,
+        alternate.required_skills,
+    )
+    merged.matched_candidate_skills = _merge_ordered_values(
+        preferred.matched_candidate_skills,
+        alternate.matched_candidate_skills,
+    )
+    merged.candidate_skill_gaps = _merge_ordered_values(
+        preferred.candidate_skill_gaps,
+        alternate.candidate_skill_gaps,
+    )
+    merged.optional_job_skills = _merge_ordered_values(
+        preferred.optional_job_skills,
+        alternate.optional_job_skills,
+    )
+    merged.extracted_keywords = _merge_ordered_values(
+        preferred.extracted_keywords,
+        alternate.extracted_keywords,
+    )
+    merged.relevant_domains = _merge_ordered_values(
+        preferred.relevant_domains,
+        alternate.relevant_domains,
+    )
+    merged.rejection_reasons = _merge_ordered_values(
+        preferred.rejection_reasons,
+        alternate.rejection_reasons,
+    )
+    merged.score_explanation = preferred.score_explanation or alternate.score_explanation
+    merged.attempts = max(left.attempts, right.attempts)
+    merged.first_seen_at = min(left.first_seen_at, right.first_seen_at)
+    merged.last_seen_at = max(left.last_seen_at, right.last_seen_at)
+    merged.notified_at = _max_datetime(left.notified_at, right.notified_at)
+
+    error_source = left if left.attempts >= right.attempts else right
+    merged.last_error_code = error_source.last_error_code
+    merged.last_error_message = error_source.last_error_message
+    merged.next_retry_at = _max_datetime(left.next_retry_at, right.next_retry_at)
+
+    if merged.status not in {JobStatus.RETRY_PENDING, JobStatus.DEAD_LETTER}:
+        merged.last_error_code = None
+        merged.last_error_message = None
+        merged.next_retry_at = None
+
+    return merged
+
+
+def _preferred_record(left: StoredJobRecord, right: StoredJobRecord) -> StoredJobRecord:
+    left_tuple = _record_preference_tuple(left)
+    right_tuple = _record_preference_tuple(right)
+    return left if left_tuple >= right_tuple else right
+
+
+def _record_preference_tuple(record: StoredJobRecord) -> tuple[int, float, float, int, int]:
+    return (
+        STATUS_MERGE_PRIORITY[record.status],
+        record.last_seen_at.timestamp(),
+        record.notified_at.timestamp() if record.notified_at is not None else -1.0,
+        record.attempts,
+        record.score or -1,
+    )
+
+
+def _merge_ordered_values(primary: list[str], secondary: list[str]) -> list[str]:
+    seen: set[str] = set()
+    merged: list[str] = []
+
+    for value in [*primary, *secondary]:
+        if value in seen:
+            continue
+        seen.add(value)
+        merged.append(value)
+
+    return merged
+
+
+def _max_datetime(left: datetime | None, right: datetime | None) -> datetime | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return max(left, right)
