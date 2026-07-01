@@ -174,9 +174,11 @@ def _load_job_from_json(path: Path) -> JobPosting:
 
 
 def _configure_logging(*, verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
-        level=level,
+        level=logging.DEBUG if verbose else logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
         force=True,
     )
+    if verbose:
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING)

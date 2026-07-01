@@ -12,6 +12,7 @@ __pycache__/
 .coverage
 htmlcov/
 *.egg-info/
+.uv-cache/
 
 # Local candidate data
 config/candidate_profile.local.yaml

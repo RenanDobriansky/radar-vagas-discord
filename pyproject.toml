@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Radar pessoal de vagas com scoring deterministico e notificacoes no Discord."
 readme = "README.md"
 requires-python = ">=3.12"
+license = { text = "MIT" }
 authors = [
   { name = "Renan Dobriansky da Silva" },
 ]
@@ -50,4 +51,3 @@ select = ["E", "F", "I", "B"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
-

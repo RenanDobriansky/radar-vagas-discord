@@ -344,7 +344,7 @@ def test_generate_resume_budget_removes_secondary_content_first(
 
     assert "experiencia adicional" not in normalized_text
     assert "ciencia de dados para negocios" in normalized_text
-    assert "smart data bi" in normalized_text
+    assert "empresa analitica exemplo" in normalized_text
 
 
 def test_generate_resume_budget_reduces_projects_and_secondary_bullets(
@@ -433,7 +433,7 @@ def test_validate_resume_requires_interrupted_marker_only_when_esic_or_administr
         "Formacao e Destaques",
     ]:
         document.add_paragraph(section)
-    document.add_paragraph("Administracao - ESIC Business")
+    document.add_paragraph("Administracao - ESIC Exemplo de Gestao")
     document.save(file_path)
 
     errors = validate_resume_artifact(build_minimal_resume_artifact(file_path), resume_profile)
@@ -455,7 +455,7 @@ def test_validate_resume_accepts_document_without_esic(
         "Formacao e Destaques",
     ]:
         document.add_paragraph(section)
-    document.add_paragraph("Ciencia de Dados para Negocios - FAE Business School")
+    document.add_paragraph("Ciencia de Dados para Negocios - Faculdade Exemplo de Negocios")
     document.save(file_path)
 
     errors = validate_resume_artifact(build_minimal_resume_artifact(file_path), resume_profile)

@@ -21,6 +21,8 @@ python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
+O repositório tambem versiona `uv.lock` para reproduzir resolucao de dependencias entre ambientes.
+
 ### Arquivos de configuracao
 
 - `.env`

@@ -64,6 +64,7 @@ Isso evita perder vagas elegiveis fora do limite por execucao e permite retry de
 ## Stack
 
 - Python 3.12+
+- `uv.lock` versionado para reproducibilidade de dependencias
 - `httpx`
 - `pydantic` e `pydantic-settings`
 - `PyYAML`
@@ -104,6 +105,8 @@ ruff check .
 pytest
 pytest --cov=src/radar_vagas --cov-report=term-missing
 ```
+
+O repositorio mantem `uv.lock`, mas os comandos com `pip install -e ".[dev]"` continuam suportados.
 
 ## Demonstracao
 

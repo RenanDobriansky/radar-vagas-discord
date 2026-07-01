@@ -33,7 +33,7 @@ def test_load_candidate_profile_example_from_repository_file() -> None:
     profile = load_candidate_profile(PROJECT_ROOT / "config" / "candidate_profile.example.yaml")
 
     assert isinstance(profile, CandidateProfile)
-    assert profile.candidate.name == "Rafael Exemplo da Silva"
+    assert profile.candidate.name == "Pessoa Candidata Exemplo"
     assert profile.education[1].status == "Curso interrompido"
 
 

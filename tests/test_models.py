@@ -94,11 +94,11 @@ def test_candidate_profile_accepts_valid_structure() -> None:
     profile = CandidateProfile.model_validate(
         {
             "candidate": {
-                "name": "Rafael Exemplo da Silva",
-                "city": "Curitiba",
-                "state": "PR",
-                "linkedin_url": "https://www.linkedin.com/in/rafael-exemplo/",
-                "github_url": "https://github.com/rafael-exemplo",
+                "name": "Pessoa Candidata Exemplo",
+                "city": "Cidade Exemplo",
+                "state": "UF",
+                "linkedin_url": "https://www.linkedin.com/in/pessoa-candidata-exemplo/",
+                "github_url": "https://github.com/pessoa-candidata-exemplo",
             },
             "summary_blocks": [
                 {
@@ -113,7 +113,7 @@ def test_candidate_profile_accepts_valid_structure() -> None:
             "experiences": [
                 {
                     "id": "smart_data_bi",
-                    "company": "Smart Data BI",
+                    "company": "Empresa Analitica Exemplo",
                     "role": "Analista de Dados",
                     "bullets": [
                         {"id": "smart_dashboard", "text": "Criacao de dashboards.", "tags": ["bi"]}
@@ -131,14 +131,14 @@ def test_candidate_profile_accepts_valid_structure() -> None:
             "education": [
                 {
                     "id": "fae_data_science",
-                    "institution": "FAE Business School",
+                    "institution": "Faculdade Exemplo de Negocios",
                     "course": "Ciencia de Dados para Negocios",
                     "status": "Em andamento",
                     "expected_completion": "jul/2027",
                 },
                 {
                     "id": "esic_business",
-                    "institution": "ESIC Business",
+                    "institution": "ESIC Exemplo de Gestao",
                     "course": "Administracao",
                     "status": "Curso interrompido",
                     "start_date": "2020-07",

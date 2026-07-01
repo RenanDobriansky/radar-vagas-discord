@@ -1,9 +1,9 @@
 candidate:
-  name: "Renan Dobriansky da Silva"
-  city: "Curitiba"
-  state: "PR"
-  linkedin_url: "https://www.linkedin.com/in/renandobriansky/"
-  github_url: "https://github.com/RenanDobriansky"
+  name: "Pessoa Candidata Ficticia"
+  city: "Cidade Exemplo"
+  state: "UF"
+  linkedin_url: "https://www.linkedin.com/in/pessoa-candidata-ficticia/"
+  github_url: "https://github.com/pessoa-candidata-ficticia"
 
 summary_blocks:
   - id: "summary_bi_data"
@@ -56,7 +56,7 @@ skills:
 
 experiences:
   - id: "smart_data_bi"
-    company: "Smart Data BI"
+    company: "Empresa Analitica Exemplo"
     role: "Analista de Dados"
     start_date: "2025-04"
     end_date: "2025-12"
@@ -99,12 +99,12 @@ projects:
 
 education:
   - id: "fae_data_science"
-    institution: "FAE Business School"
+    institution: "Faculdade Exemplo de Negocios"
     course: "Ciencia de Dados para Negocios"
     status: "Em andamento"
     expected_completion: "jul/2027"
   - id: "esic_business"
-    institution: "ESIC Business"
+    institution: "ESIC Exemplo de Gestao"
     course: "Administracao"
     status: "Curso interrompido"
     start_date: "2020-07"
@@ -112,17 +112,17 @@ education:
 
 additional_experiences:
   - id: "silo_miotto"
-    headline: "Silo Miotto Distribuidora Ltda - Socio-proprietario (2022-2025)"
+    headline: "Distribuidora Exemplo Regional Ltda - Socio-proprietario (2022-2025)"
     details: "compras, estoque, vendas e gestao operacional."
     tags: ["negocio", "operacional", "comercial", "gestao"]
   - id: "wow_paper"
-    headline: "Wow Paper do Brasil - Socio-proprietario (2019-2022)"
+    headline: "Papelaria Exemplo Central - Socio-proprietario (2019-2022)"
     details: "prospeccao, vendas e operacao. Experiencias que ampliaram a visao de negocio aplicada a analises de dados."
     tags: ["negocio", "comercial", "operacional", "analise"]
 
 highlights:
-  - "1o lugar no Data Science Day 2024 da FAE e 2o lugar em competicao de dashboards da instituicao."
-  - "Cursos de Power BI e Python - Hashtag Treinamentos | Ingles intermediario."
+  - "1o lugar em desafio academico ficticio de dados e 2o lugar em competicao simulada de dashboards."
+  - "Cursos de Power BI e Python - Academia Exemplo | Ingles intermediario."
 
 forbidden_claims:
   - "formado em Administracao"
