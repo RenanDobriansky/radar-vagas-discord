@@ -34,6 +34,7 @@ Exemplo minimo de `.env`:
 ```dotenv
 DISCORD_WEBHOOK_URL=
 JOOBLE_API_KEY=
+JOOBLE_API_BASE_URL=https://br.jooble.org/api/
 CANDIDATE_EMAIL=
 CANDIDATE_PHONE=
 CANDIDATE_PROFILE_PATH=config/candidate_profile.local.yaml
@@ -90,6 +91,12 @@ No modo `dry-run`:
 
 - `.github/workflows/ci.yml`
 - `.github/workflows/radar.yml`
+
+### Observacao sobre fontes
+
+- `Jooble` e a fonte principal para vagas no Brasil.
+- sem `--provider`, o comando consulta apenas a `Jooble`.
+- `Remotive` e mantida como fonte complementar, com termos mais especificos e filtro de localizacao compativel com Brasil.
 
 ### CI
 

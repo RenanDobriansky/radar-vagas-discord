@@ -237,7 +237,6 @@ def _fetch_jobs(
     summary: PipelineSummary,
 ) -> list[JobPosting]:
     all_jobs: list[JobPosting] = []
-    terms = _resolve_terms(config, options)
     locations = _resolve_locations(config, options)
     results_per_page = options.results_per_page or config.search.provider_results_per_query
 
@@ -257,7 +256,7 @@ def _fetch_jobs(
 
         queries = _build_provider_queries(
             provider=provider,
-            terms=terms,
+            terms=_resolve_provider_terms(provider_name, config, options),
             locations=locations,
             category=options.category,
         )
@@ -432,7 +431,10 @@ def _process_selected_job(
 
 def _default_provider_factories() -> dict[str, ProviderFactory]:
     return {
-        "jooble": lambda settings: JoobleProvider(api_key=settings.jooble_api_key or ""),
+        "jooble": lambda settings: JoobleProvider(
+            api_key=settings.jooble_api_key or "",
+            base_url=settings.jooble_api_base_url,
+        ),
         "remotive": lambda _settings: RemotiveProvider(),
     }
 
@@ -443,6 +445,8 @@ def _resolve_provider_names(
 ) -> list[str]:
     available = sorted(factories.keys())
     if not options.provider_names:
+        if "jooble" in available:
+            return ["jooble"]
         return available
 
     selected: list[str] = []
@@ -480,6 +484,19 @@ def _apply_overrides(config: ProfileConfig, options: PipelineOptions) -> Profile
 def _resolve_terms(config: ProfileConfig, options: PipelineOptions) -> list[str]:
     if options.term and options.term.strip():
         return [options.term.strip()]
+    return config.search.terms
+
+
+def _resolve_provider_terms(
+    provider_name: str,
+    config: ProfileConfig,
+    options: PipelineOptions,
+) -> list[str]:
+    if options.term and options.term.strip():
+        return [options.term.strip()]
+    provider_terms = config.search.provider_terms.get(provider_name, [])
+    if provider_terms:
+        return provider_terms
     return config.search.terms
 
 

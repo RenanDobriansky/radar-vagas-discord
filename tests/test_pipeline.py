@@ -273,6 +273,9 @@ def test_pipeline_queries_remotive_once_per_term_independent_of_locations(tmp_pa
         terms=["BI Analyst", "Data Analyst"],
         locations=["Curitiba", "Pinhais", "Colombo"],
     )
+    payload = profile_config.model_dump(mode="python")
+    payload["search"]["provider_terms"] = {"remotive": ["junior data analyst", "power bi analyst"]}
+    profile_config = type(profile_config).model_validate(payload)
     provider = RecordingProvider(
         [],
         capabilities=ProviderCapabilities(
@@ -299,7 +302,7 @@ def test_pipeline_queries_remotive_once_per_term_independent_of_locations(tmp_pa
 
     assert summary.queries_executed == 2
     assert len(provider.calls) == 2
-    assert {call["term"] for call in provider.calls} == {"BI Analyst", "Data Analyst"}
+    assert {call["term"] for call in provider.calls} == {"junior data analyst", "power bi analyst"}
     assert {call["location"] for call in provider.calls} == {""}
 
 
@@ -849,7 +852,7 @@ def test_cli_runs_pipeline_with_overrides(
         del settings
         return PipelineSummary(
             dry_run=options.dry_run,
-            provider_names=options.provider_names or ["jooble", "remotive"],
+            provider_names=options.provider_names or ["jooble"],
             selected_jobs=1,
             notifications_sent=0,
         )

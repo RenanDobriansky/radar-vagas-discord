@@ -153,6 +153,7 @@ Exemplo minimo de `.env`:
 ```dotenv
 DISCORD_WEBHOOK_URL=
 JOOBLE_API_KEY=
+JOOBLE_API_BASE_URL=https://br.jooble.org/api/
 CANDIDATE_EMAIL=
 CANDIDATE_PHONE=
 CANDIDATE_PROFILE_PATH=config/candidate_profile.local.yaml
@@ -169,6 +170,9 @@ python -m radar_vagas --provider remotive --max-jobs 3 --verbose
 python -m radar_vagas --provider jooble --term "Analista de Dados" --location "Curitiba"
 ```
 
+Sem `--provider`, o radar consulta apenas a `Jooble`.
+Use `--provider remotive` quando quiser rodar a fonte complementar explicitamente.
+
 ## GitHub Actions
 
 O repositorio usa dois workflows:
@@ -180,6 +184,12 @@ Resumo:
 
 - `CI`: lint e testes, sem secrets produtivos;
 - `Radar de Vagas`: execucao agendada e manual, com estado operacional em `radar-state`.
+
+Observacao sobre providers:
+
+- `Jooble` segue como fonte principal para Brasil;
+- por padrao, somente a `Jooble` e consultada;
+- `Remotive` usa termos mais especificos configurados para a propria fonte e, no momento, considera apenas vagas com localizacao compativel com Brasil.
 
 Secrets obrigatorios do workflow produtivo:
 
